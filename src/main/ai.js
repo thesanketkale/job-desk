@@ -127,7 +127,7 @@ async function call(system, user, maxTokens = 8000, opts = {}) {
   // An explicit key is passed only when checking one that is not saved yet.
   const key = opts.key || keyOrThrow();
 
-  const req = providers.buildRequest(id, { model, system, user, maxTokens, key });
+  const req = providers.buildRequest(id, { model, system, user, maxTokens, key, cheap: !!opts.cheap });
   const raw = await postJson(req.url, req.body, req.headers);
   const out = providers.parseResponse(id, raw);
 
@@ -306,11 +306,20 @@ BACKGROUND IN ONE LINE: ${cv.pitch || cv.summary || 'An experienced professional
   };
 }
 
-/** A deliberately tiny request, so checking a key costs a fraction of a paisa. */
+/**
+ * A deliberately tiny request, so checking a key costs a fraction of a paisa.
+ *
+ * Confirmed live against Gemini: a reasoning model can spend an entire small
+ * token budget on invisible "thinking" and return nothing, which reads as a
+ * broken key rather than a request that was simply too stingy. `cheap: true`
+ * turns thinking down on a provider verified to accept that; the wider budget
+ * on non-Anthropic wires is the safety net for the ones that are not.
+ */
 async function ping(opts = {}) {
   const id = opts.provider || budget.providerId();
-  const { usage, model } = await call('Reply with the single word: ok', 'ping', 16,
-    { ...opts, provider: id });
+  const wire = providers.get(id).wire;
+  const { usage, model } = await call('Reply with the single word: ok', 'ping',
+    wire === 'anthropic' ? 16 : 300, { ...opts, provider: id, cheap: true });
   budget.record(usage, model, 'key check');
   return {
     ok: true,

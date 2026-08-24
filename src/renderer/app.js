@@ -713,7 +713,7 @@ function describeProvider(list, id) {
   const p = list.providers.find((x) => x.id === id);
   if (!p) return;
   $('#w-provider-hint').textContent = p.keyHint;
-  $('#w-key').placeholder = p.id === 'gemini' ? 'AIza…' : p.id === 'openrouter' ? 'sk-or-…' : 'sk-ant-…';
+  $('#w-key').placeholder = p.id === 'openrouter' ? 'sk-or-…' : p.id === 'anthropic' ? 'sk-ant-…' : 'Paste your key…';
   $('#w-key-link').dataset.external = p.keyUrl;
 
   const cheapest = Object.values(p.models).sort((a, b) => (a.in + a.out) - (b.in + b.out))[0];
@@ -1615,7 +1615,7 @@ VIEWS.settings = async function settingsView() {
       $('#s-key-link').dataset.external = p.keyUrl;
       $('#s-claude').placeholder = p.hasKey
         ? '•••••••••••••••• (already saved)'
-        : `${p.id === 'gemini' ? 'AIza…' : p.id === 'openrouter' ? 'sk-or-…' : 'sk-ant-…'} — leave empty to keep using templates`;
+        : `${p.id === 'openrouter' ? 'sk-or-…' : p.id === 'anthropic' ? 'sk-ant-…' : 'Paste your key…'} — leave empty to keep using templates`;
     };
     paint(list.current);
 

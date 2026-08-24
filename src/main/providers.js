@@ -24,21 +24,36 @@ const PROVIDERS = {
     modelsUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/models',
     secret: 'gemini_api_key',
     keyUrl: 'https://aistudio.google.com/apikey',
-    keyHint: 'Free from aistudio.google.com — no card needed. Keys begin with "AIza".',
-    keyLooksWrong: (k) => (/^AIza[\w-]{10,}$/.test(k) ? ''
-      : 'Google API keys begin with "AIza". Get one free at aistudio.google.com/apikey — '
-        + 'note that a Gemini Pro subscription is not the same thing and does not include API access.'),
+    keyHint: 'Free from aistudio.google.com — no card needed.',
+    // Google issues more than one valid key shape — a real key tested against
+    // this app during development did not start with "AIza", which is the only
+    // format most documentation mentions. The live call in ping() is the actual
+    // judge; this only catches the empty-box case and an obvious wrong-provider
+    // paste, rather than guessing at a format Google itself does not commit to.
+    keyLooksWrong: (k) => {
+      if (k.length < 15) return 'That looks too short for a Google API key. Get one free at aistudio.google.com/apikey.';
+      if (k.startsWith('sk-ant-')) return 'That looks like a Claude key, not a Google one.';
+      if (k.startsWith('sk-or-')) return 'That looks like an OpenRouter key, not a Google one.';
+      return '';
+    },
     defaultModel: 'gemini-3.5-flash',
+    // Verified live: passing reasoning_effort: "minimal" on the OpenAI-compat
+    // endpoint stops Gemini burning its token budget on invisible thinking —
+    // used only for calls that do not need reasoning quality, like a key check.
+    cheapReasoningField: 'reasoning_effort',
     freeTier: true,
     freeNote: 'Google\'s free tier covers roughly 1,000 requests a day on Flash models. '
       + 'The figures below are what it would cost only if you turn on billing and go past that.',
     dataNote: 'On the free tier Google may use what is sent to improve its models. '
       + 'On the paid tier it does not. Tailoring sends your whole CV.',
+    // Confirmed live against the real API — gemini-2.5-flash and gemini-2.5-pro
+    // now 404 with "no longer available to new users", which the models list
+    // does not warn about; it still lists them as though they worked.
     models: {
       'gemini-3.5-flash':      { in: 0.30, out: 2.50, label: 'Gemini 3.5 Flash — free tier, the right default' },
       'gemini-3.5-flash-lite': { in: 0.30, out: 2.50, label: 'Gemini 3.5 Flash-Lite — fastest, free tier' },
+      'gemini-3.6-flash':      { in: 1.50, out: 7.50, label: 'Gemini 3.6 Flash — stronger than the default' },
       'gemini-3.7-flash':      { in: 1.50, out: 7.50, label: 'Gemini 3.7 Flash — strongest Flash' },
-      'gemini-2.5-flash':      { in: 0.30, out: 2.50, label: 'Gemini 2.5 Flash — older, free tier' },
     },
   },
 
@@ -121,7 +136,7 @@ const catalogue = () => ids().map(describe);
  * the system prompt goes, how the key is presented, and what the reply is
  * called.
  */
-function buildRequest(providerId, { model, system, user, maxTokens, key }) {
+function buildRequest(providerId, { model, system, user, maxTokens, key, cheap = false }) {
   const p = get(providerId);
 
   if (p.wire === 'anthropic') {
@@ -137,18 +152,22 @@ function buildRequest(providerId, { model, system, user, maxTokens, key }) {
     };
   }
 
-  return {
-    url: p.endpoint,
-    headers: { Authorization: `Bearer ${key}` },
-    body: {
-      model,
-      max_tokens: maxTokens,
-      messages: [                                 // the system prompt is a message
-        { role: 'system', content: system },
-        { role: 'user', content: user },
-      ],
-    },
+  const body = {
+    model,
+    max_tokens: maxTokens,
+    messages: [                                 // the system prompt is a message
+      { role: 'system', content: system },
+      { role: 'user', content: user },
+    ],
   };
+  // Confirmed live on Gemini: reasoning models spend the entire token budget on
+  // invisible "thinking" before answering, which starves a small max_tokens call
+  // (like a key check) of any room for the actual answer. Turned down only for
+  // calls that do not need reasoning quality, and only for a provider this has
+  // been proven to accept — an unrecognised field is a 400 on some backends.
+  if (cheap && p.cheapReasoningField) body[p.cheapReasoningField] = 'minimal';
+
+  return { url: p.endpoint, headers: { Authorization: `Bearer ${key}` }, body };
 }
 
 /**
@@ -156,8 +175,12 @@ function buildRequest(providerId, { model, system, user, maxTokens, key }) {
  * complaint. Token counts come back under different names and are mapped onto
  * the Anthropic ones, which the ledger already speaks.
  */
-function parseResponse(providerId, res) {
+function parseResponse(providerId, raw) {
   const p = get(providerId);
+  // Confirmed live on Gemini: an error on the OpenAI-compat endpoint can come
+  // back wrapped in a one-element array — [{"error": {...}}] — rather than as
+  // a bare object, on at least a 404 for a retired model.
+  const res = Array.isArray(raw) ? raw[0] : raw;
 
   const error = res?.error?.message || (typeof res?.error === 'string' ? res.error : null);
   if (error) return { error };
@@ -174,14 +197,19 @@ function parseResponse(providerId, res) {
   const text = Array.isArray(content)
     ? content.map((c) => (typeof c === 'string' ? c : c?.text || '')).join('')
     : String(content || '');
+
   const u = res.usage || {};
-  return {
-    text,
-    usage: {
-      input_tokens: Number(u.prompt_tokens || u.input_tokens || 0),
-      output_tokens: Number(u.completion_tokens || u.output_tokens || 0),
-    },
-  };
+  const promptTok = Number(u.prompt_tokens || u.input_tokens || 0);
+  const visibleTok = Number(u.completion_tokens || u.output_tokens || 0);
+  const totalTok = Number(u.total_tokens || 0);
+  // Reasoning models (confirmed on Gemini 3.x) spend "thinking" tokens that are
+  // invisible in completion_tokens but billed at the full output rate — on a
+  // real request they can be 70-85% of the actual bill. total_tokens includes
+  // them; completion_tokens does not. Falling back to completion_tokens only
+  // when a provider omits total_tokens keeps this safe either way.
+  const outputTok = totalTok > promptTok + visibleTok ? totalTok - promptTok : visibleTok;
+
+  return { text, usage: { input_tokens: promptTok, output_tokens: outputTok } };
 }
 
 /** Pulls the live model list, so a stale table here is never the only source. */

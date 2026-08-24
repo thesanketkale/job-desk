@@ -642,7 +642,17 @@ group('Making the CV files');
   // Each service has its own key shape, and the wrong one is caught locally —
   // before a request is made, and before anything is stored.
   const KEY_CASES = [
-    { provider: 'gemini', says: 'AIza', good: `AIza${'x'.repeat(35)}`,
+    // Google issues more than one valid key shape — a real key tested live
+    // against this app did not start with "AIza", the only prefix most
+    // documentation mentions, and would have been wrongly rejected by an
+    // earlier version of this check. Two "good" shapes guard against that
+    // regression recurring: the documented one and the one actually observed.
+    { provider: 'gemini', says: 'aistudio.google.com', good: `AIza${'x'.repeat(35)}`,
+      // Same shape as a real key seen during manual testing (a "AQ." prefix,
+      // not "AIza"), but not a real credential — this must never make a
+      // network call that could succeed, or npm test would need network
+      // access and a live secret would end up committed to the repo.
+      good2: `AQ.${'x'.repeat(50)}`,
       bad: ['', 'sk-ant-abcdefghijklmnopqrst', 'nope'] },
     { provider: 'anthropic', says: 'sk-ant-', good: `sk-ant-${'x'.repeat(40)}`,
       bad: ['', `AIza${'x'.repeat(35)}`, 'sk-ant-abc'] },
@@ -662,12 +672,16 @@ group('Making the CV files');
       try { await claude.validateKey('nope', c.provider); return false; }
       catch (e) { return e.message.includes(c.says); }
     })());
-    // A well-shaped key has to get past the local checks and fail on the network,
-    // which is what proves the shape check is not the thing rejecting it.
-    ok(`${c.provider} lets a well-formed key through to the service`, await (async () => {
-      try { await claude.validateKey(c.good, c.provider); return false; }
-      catch (e) { return !/begin with|truncated|Paste the key/.test(e.message); }
-    })());
+    // Whether a well-shaped key gets past the local check is tested against
+    // keyLooksWrong directly, not through validateKey — that falls through to
+    // ping(), a real network call to the provider's real API, which npm test
+    // must never depend on (see CLAUDE.md: no network needed) and which one
+    // run of this exact case took over two minutes to return from.
+    const shapeCheck = providers.get(c.provider).keyLooksWrong;
+    ok(`${c.provider} lets a well-formed key past the shape check`,
+      !shapeCheck(c.good), shapeCheck(c.good));
+    if (c.good2) ok(`${c.provider} lets a differently-shaped real key past it too`,
+      !shapeCheck(c.good2), shapeCheck(c.good2));
   }
 
   /* --------------------------------------------- one shape, many services -- */

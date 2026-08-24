@@ -56,7 +56,24 @@ never a weaker guarantee.
 falls back to `anthropic` when an install already has a Claude key, so nobody's
 provider changes underneath them. Model ids are scoped to the provider and the
 live list is fetched on key validation, because the table in `providers.js` goes
-stale — same as the prices.
+stale — same as the prices. Confirmed live: `gemini-2.5-flash`, listed in
+Google's own model catalogue as though it worked, 404s with "no longer
+available to new users" — the catalogue is not proof a model actually answers.
+
+**Gemini's 3.x models spend hidden "thinking" tokens before they answer, and
+those tokens bill at the output rate.** Confirmed live: a trivial prompt used
+`total_tokens: 99` against `completion_tokens: 1` — thinking can be 70-85% of
+the real bill on a complex one. `providers.js#parseResponse` prices on
+`total_tokens - prompt_tokens`, not `completion_tokens` alone, or Gemini spend
+would be silently undercounted. `ping()` passes `reasoning_effort: "minimal"`
+(the `cheapReasoningField`) so a tiny key-check call does not spend its entire
+token budget on invisible reasoning and return nothing.
+
+**`http.js#request()` reads the response body on a failing status too.** It
+used to discard it, so every non-2xx reply reached `postJson`'s caller as a
+bare `"HTTP 429"` — losing the provider's actual reason and bypassing
+`friendlyError()` entirely. A provider's own error can also arrive wrapped in a
+one-element array rather than a bare object; `parseResponse` unwraps both.
 
 **The app works with no API key.** `templates.js` is the free path; `applier.prepare()`
 branches on `ai.available()` and both branches return the same shape. Any new
