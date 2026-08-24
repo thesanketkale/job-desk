@@ -8,14 +8,16 @@
  * and Markdown need nothing at all, and the app's own JSON format is read
  * straight through so an exported CV can be re-imported.
  *
- * PDF is deliberately not supported: extracting text from one genuinely needs a
- * real parser, and the honest answer is to say so and offer the alternatives
- * rather than half-read it and quietly lose half the resume.
+ * PDF goes through `pdf-text.js`, which is the same bargain again — content
+ * streams are FlateDecode, so `node:zlib` does the hard part. It reports how
+ * confident it is, and anything that does not read like prose is refused with
+ * the paste-instead advice rather than shown as though it were a CV.
  */
 const fs = require('node:fs');
 const path = require('node:path');
 const zlib = require('node:zlib');
 const { decodeEntities } = require('./normalize');
+const { extractPdfText } = require('./pdf-text');
 
 const TEXT_EXT = new Set(['.txt', '.md', '.markdown', '.text']);
 
@@ -117,7 +119,7 @@ function tidy(text) {
 
 /* ----------------------------------------------------------------- entry --- */
 
-const SUPPORTED = 'Word (.docx), plain text (.txt) or Markdown (.md)';
+const SUPPORTED = 'PDF (.pdf), Word (.docx), plain text (.txt) or Markdown (.md)';
 
 /**
  * Reads a resume file into plain text.
@@ -131,10 +133,6 @@ function readResumeFile(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   const base = path.basename(filePath);
 
-  if (ext === '.pdf') {
-    throw new Error('PDF resumes cannot be read directly. Open it, use File → Save as '
-      + `and choose Word (.docx), or copy the text and paste it in. Job Desk reads ${SUPPORTED}.`);
-  }
   if (ext === '.doc') {
     throw new Error('That is the older Word format. Open it in Word and use File → Save as '
       + 'to save a .docx, or paste the text in instead.');
@@ -153,6 +151,24 @@ function readResumeFile(filePath) {
       throw new Error('That .json file is not a Job Desk CV — it has no name in it.');
     }
     return { cv, kind: 'json', file: base };
+  }
+
+  if (ext === '.pdf') {
+    const { text, quality, reason } = extractPdfText(fs.readFileSync(filePath));
+    if (reason === 'encrypted') {
+      throw new Error('That PDF is password protected, so its text cannot be read. Open it, '
+        + 'save an unprotected copy, or copy the text and paste it in instead.');
+    }
+    if (quality === 'none') {
+      throw new Error('No text could be found in that PDF. If it is a scan or a photograph of '
+        + 'a printed page, the words are an image rather than text — paste the text in instead.');
+    }
+    if (quality === 'poor') {
+      throw new Error('The text in that PDF did not come out cleanly enough to trust — this happens '
+        + 'with unusual fonts. Rather than show you a garbled CV: open it, select everything, '
+        + 'copy, and paste the text in instead.');
+    }
+    return { text: tidy(text), kind: 'pdf', file: base };
   }
 
   if (ext === '.docx') {

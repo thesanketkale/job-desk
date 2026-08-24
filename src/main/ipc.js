@@ -338,7 +338,8 @@ function register(ctx) {
       title: 'Choose your resume',
       properties: ['openFile'],
       filters: [
-        { name: 'Resume', extensions: ['docx', 'txt', 'md', 'json'] },
+        { name: 'Resume', extensions: ['pdf', 'docx', 'txt', 'md', 'json'] },
+        { name: 'PDF', extensions: ['pdf'] },
         { name: 'Word document', extensions: ['docx'] },
         { name: 'Plain text', extensions: ['txt', 'md'] },
         { name: 'All files', extensions: ['*'] },

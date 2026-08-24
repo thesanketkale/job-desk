@@ -581,10 +581,19 @@ fs.writeFileSync(jsonPath, JSON.stringify(master));
 ok('an exported CV comes back whole, not re-parsed',
   resumeRead.readResumeFile(jsonPath).cv.name === master.name);
 
-ok('a PDF says what to do instead', (() => {
-  fs.writeFileSync(path.join(dir, 'cv.pdf'), '%PDF-1.4 stub');
-  try { resumeRead.readResumeFile(path.join(dir, 'cv.pdf')); return false; }
-  catch (e) { return /Save as/i.test(e.message) && /docx/i.test(e.message); }
+// A PDF with no text in it is a scan. Saying so is the whole point: the
+// alternative is handing back an empty CV as though it had been read.
+ok('a PDF with no text in it says so, rather than returning nothing', (() => {
+  fs.writeFileSync(path.join(dir, 'scan.pdf'),
+    '%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n%%EOF\n');
+  try { resumeRead.readResumeFile(path.join(dir, 'scan.pdf')); return false; }
+  catch (e) { return /scan|photograph|no text/i.test(e.message); }
+})());
+ok('a password-protected PDF explains itself', (() => {
+  fs.writeFileSync(path.join(dir, 'locked.pdf'),
+    '%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Encrypt 9 0 R >>\n%%EOF\n');
+  try { resumeRead.readResumeFile(path.join(dir, 'locked.pdf')); return false; }
+  catch (e) { return /password protected/i.test(e.message); }
 })());
 ok('the old Word format explains itself', (() => {
   fs.writeFileSync(path.join(dir, 'cv.doc'), 'stub');
@@ -636,6 +645,35 @@ group('Making the CV files');
   ok('and it parses back into the same person', reparsed.cv.name === master.name, reparsed.cv.name);
   ok('with the email intact', reparsed.cv.contact.email === master.contact.email,
     reparsed.cv.contact.email);
+
+  /* The PDF the app just wrote is a real PDF — content streams, FlateDecode,
+     WinAnsi-encoded fonts — so reading it back tests the extractor against a
+     genuine file rather than a hand-made sample. */
+  group('Reading back a real PDF');
+  const fromPdf = resumeRead.readResumeFile(pdfPath);
+  ok('the PDF is read without a parser dependency', fromPdf.kind === 'pdf');
+  ok('the name survives the round trip',
+    fromPdf.text.toLowerCase().includes(master.name.toLowerCase()), fromPdf.text.slice(0, 60));
+  ok('the email survives it', fromPdf.text.includes(master.contact.email));
+  ok('an employer survives it', fromPdf.text.includes(master.experience[0].org));
+  ok('the institution survives it', fromPdf.text.includes(master.education[0].school));
+  ok('no PDF operators leak into the text', !/\bTJ\b|\bTf\b|\bendstream\b/.test(fromPdf.text));
+  // WinAnsi maps 0x96 to an en dash. Getting this wrong turns "Dec 2019 – Mar
+  // 2023" into something that no longer reads as a date range, and every job
+  // on the CV stops being recognised.
+  ok('an en dash comes back as an en dash, not a control code',
+    fromPdf.text.includes('–') && !/[\x80-\x9F]/.test(fromPdf.text));
+
+  const fromPdfCv = resumeParse.parseResume(fromPdf.text).cv;
+  ok('the PDF parses back into the same person', fromPdfCv.name === master.name, fromPdfCv.name);
+  ok('with every role found', fromPdfCv.experience.length === master.experience.length,
+    `${fromPdfCv.experience.length} of ${master.experience.length}`);
+  ok('with the employer read correctly, not split on a hyphen',
+    fromPdfCv.experience.some((j) => j.org === 'Self-Employed'),
+    fromPdfCv.experience.map((j) => j.org).join(' | '));
+  ok('and both qualifications, not one per line',
+    fromPdfCv.education.length === master.education.length,
+    String(fromPdfCv.education.length));
 
   /* ------------------------------------------------ checking an API key ---- */
   group('Checking an API key before saving it');

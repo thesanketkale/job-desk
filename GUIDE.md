@@ -3,12 +3,15 @@
 ## Start here: your resume
 
 The first thing the app asks for is your resume. Press **Choose my resume…** and
-pick the file. Word documents (`.docx`), plain text and Markdown are all read
-directly.
+pick the file. PDFs (`.pdf`), Word documents (`.docx`), plain text and Markdown
+are all read directly.
 
-If yours is a PDF, either open it and use **File → Save as** to make a Word copy,
-or open it, select everything, copy, and use **Paste the text instead** on the
-same screen. Pasting works for any format at all.
+One kind of PDF cannot be read: a scan, or a photograph of a printed page. There
+are no words in a file like that, only a picture of words. The app tells you
+plainly when that happens rather than showing you an empty CV. The same is true
+of a password-protected PDF, and of the rare file whose fonts come out garbled —
+in every one of those cases, use **Paste the text instead** on the same screen,
+which works for absolutely any file.
 
 From that one file the app works out:
 
@@ -185,3 +188,29 @@ All of it is on this computer, in a folder you can open from Settings. Nothing
 is uploaded anywhere except the job searches, the CV tailoring if you turn it on,
 and the emails you choose to send. Every CV the app has made for you is kept, and
 *Back everything up now* makes a copy you can put on a pen drive.
+
+## Adding a company's careers page
+
+Most employers publish through Greenhouse, Lever, Ashby or Workable. The board
+name is the last part of their careers URL — `boards.greenhouse.io/lyrahealth`
+is `lyrahealth`. Sources → *Check it first* asks the real API before saving, so
+a wrong name is caught immediately rather than silently returning nothing.
+
+## When something goes wrong
+
+- **The board is empty.** You have not pressed *Find new jobs* yet, or the
+  minimum score in Settings is too high.
+- **Nothing from India.** The Adzuna keys are missing. They are free, and they
+  are where most Indian listings come from.
+- **A source shows red.** Company boards change their name when a company
+  switches systems. The Test button on Sources says so in one click.
+- **Email fails.** Settings → *Check it works* prints the actual SMTP error in
+  plain language rather than a code.
+- **A form will not fill.** Some pages build their fields after load, or hide
+  them behind a login. Reload, then fill. Failing that, *Show me the CV file*
+  and drag it in.
+- **Your PDF will not read.** It is almost certainly a scan. Open it, select
+  everything, copy, and use *Paste the text instead*.
+- **Tailoring stops working.** Check Settings — a free tier can be rate limited
+  at busy times, and the app says so rather than failing silently. Applications
+  keep working on the template path meanwhile.

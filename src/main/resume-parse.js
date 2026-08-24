@@ -265,7 +265,10 @@ function splitTitleOrg(line) {
     if (cols.length >= 2) return [cols[0], cols[1]];
   }
   const s = raw.replace(/\s+/g, ' ');
-  const m = s.match(/^(.+?)\s*(?:\bat\b|[|,–—-])\s*(.+)$/i);
+  // A dash only separates when it has space around it. Without that rule the
+  // hyphen inside "Self-Employed" looks like a separator, and the employer
+  // comes out as "Employed" — which then becomes a search keyword.
+  const m = s.match(/^(.+?)\s*(?:\bat\b|[|,·•]|\s[–—-]\s)\s*(.+)$/i);
   if (m && m[1].length > 1 && m[2].length > 1 && m[2].length < 60) {
     return [m[1].trim(), m[2].trim()];
   }
@@ -276,18 +279,42 @@ const slugId = (s, i) => (String(s).toLowerCase().replace(/[^a-z0-9]+/g, '').sli
 
 /* ------------------------------------------------------------- education -- */
 
+const DEGREE_RE = /\b(ph\.?\s?d|d\.?phil|m\.?\s?sc|m\.?\s?a\b|m\.?\s?b\.?\s?a|m\.?phil|m\.?\s?ed|ll\.?\s?[bm]|b\.?\s?sc|b\.?\s?a\b|b\.?\s?ed|b\.?\s?tech|m\.?\s?tech|b\.?\s?e\b|bachelor|master|doctor|diploma|degree|hnd|foundation)\b/i;
+const INSTITUTION_RE = /\b(universit|college|school|institute|academy|polytechnic|conservatoir)/i;
+
+/**
+ * Education is written one-per-line on some resumes and spread over three or
+ * four lines on others — a PDF in particular tends to put the degree, the
+ * years, the institution and the grade on separate lines. Treating every line
+ * as its own qualification turns two degrees into five, so a new entry starts
+ * only on a line that actually names a degree; the lines after it are read as
+ * belonging to that entry.
+ */
 function parseEducation(block) {
   if (!block) return [];
+  const yearRe = new RegExp(`${WHEN}\\s*(?:-|–|—|to)\\s*${WHEN}|\\b(19|20)\\d{2}\\b`, 'i');
   const out = [];
+
   for (const raw of block.split('\n')) {
     const line = raw.replace(BULLET_RE, '').trim();
-    if (!line || line.length < 6) continue;
-    const years = line.match(new RegExp(`${WHEN}\\s*(?:-|–|—|to)\\s*${WHEN}|\\b(19|20)\\d{2}\\b`, 'i'));
+    if (!line || line.length < 3) continue;
+
+    const years = line.match(yearRe);
     const withoutYears = line.replace(years ? years[0] : '', '').replace(/[|,\-–—]\s*$/, '').trim();
-    const [degree, school] = splitTitleOrg(withoutYears);
-    if (!degree) continue;
-    out.push({ degree, school: school || '', years: years ? tidyWhen(years[0]) : '', detail: '' });
-    if (out.length >= 8) break;
+    const current = out[out.length - 1];
+
+    if (DEGREE_RE.test(withoutYears)) {
+      const [degree, school] = splitTitleOrg(withoutYears);
+      if (!degree) continue;
+      out.push({ degree, school: school || '', years: years ? tidyWhen(years[0]) : '', detail: '' });
+      if (out.length >= 8) break;
+      continue;
+    }
+
+    if (!current) continue;                       // nothing to attach it to yet
+    if (!withoutYears && years && !current.years) { current.years = tidyWhen(years[0]); continue; }
+    if (!current.school && INSTITUTION_RE.test(withoutYears)) { current.school = withoutYears; continue; }
+    if (!current.detail && withoutYears.length > 3) current.detail = withoutYears.slice(0, 200);
   }
   return out;
 }

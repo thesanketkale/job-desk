@@ -8,7 +8,7 @@ Srishti Sharma, a counselling psychologist. Electron on Windows, no server.
 ```bash
 npm install
 npm start            # npm run dev opens devtools
-npm test             # 228 checks, no Electron and no network needed
+npm test             # 241 checks, no Electron and no network needed
 ```
 
 `npm test` needs Node 22.5+ on the system PATH (`node:sqlite` isn't available
@@ -95,6 +95,17 @@ person added, re-weighted or toggled is marked `source = 'user'` and survives.
 If you add a path that writes keywords, set `source` or it will be treated as
 theirs and never refresh.
 
+**A PDF is refused rather than half-read.** `pdf-text.js` returns
+`{text, quality}` — `good`, `poor` or `none` — and `resume-read.js` throws on
+anything but `good`. A scan has no text in it, only a picture of text; showing
+somebody an empty or garbled CV and calling it theirs is worse than telling them
+to paste it. Two things in there are load-bearing and non-obvious: array
+brackets in a content stream must not clear the operand stack (they are
+punctuation, not operators, and clearing on them discards every string before
+its `TJ`), and bytes 0x80–0x9F must go through the WinAnsi table, or an en dash
+becomes a control code and every "Dec 2019 – Mar 2023" stops parsing as a date
+range, which loses every job on the CV.
+
 **A parse is shown before it is saved.** `profile.preview()` reads and returns;
 `profile.apply()` is what writes. Nothing derived from a resume — the CV, the
 contact details, the keywords — is committed without the person seeing it in the
@@ -111,7 +122,8 @@ a CI step guarding it.
 | Path | What |
 |---|---|
 | `src/main/db.js` | Schema and query helpers. Migrations are additive-only, in `migrate()`. |
-| `src/main/resume-read.js` | Resume file → plain text. `.docx` via a hand-rolled ZIP read; no dependency. |
+| `src/main/resume-read.js` | Resume file → plain text. Picks the reader by extension. |
+| `src/main/pdf-text.js` | PDF → plain text. Hand-rolled; no dependency. Reports its own confidence. |
 | `src/main/resume-parse.js` | Plain text → the CV shape, plus the flat profile facts. |
 | `src/main/resume-keywords.js` | CV → the query/boost vocabulary. |
 | `src/main/profile.js` | Owns the whole consequence of an import: CV, facts, mailbox, keywords. |
