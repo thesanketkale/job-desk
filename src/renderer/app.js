@@ -700,6 +700,34 @@ function renderResumeReplacement(read) {
   };
 }
 
+/** Which stored secret belongs to which service. */
+const SECRET_OF = {
+  gemini: 'gemini_api_key',
+  anthropic: 'anthropic_api_key',
+  openrouter: 'openrouter_api_key',
+};
+const CURRENT_SECRET = () => SECRET_OF[$('#s-provider')?.value] || 'gemini_api_key';
+
+/** Fills in the hint, the cost line and the privacy line for one provider. */
+function describeProvider(list, id) {
+  const p = list.providers.find((x) => x.id === id);
+  if (!p) return;
+  $('#w-provider-hint').textContent = p.keyHint;
+  $('#w-key').placeholder = p.id === 'gemini' ? 'AIza…' : p.id === 'openrouter' ? 'sk-or-…' : 'sk-ant-…';
+  $('#w-key-link').dataset.external = p.keyUrl;
+
+  const cheapest = Object.values(p.models).sort((a, b) => (a.in + a.out) - (b.in + b.out))[0];
+  const perApp = cheapest ? ((8000 / 1e6) * cheapest.in + (4000 / 1e6) * cheapest.out) : 0;
+  $('#w-provider-cost').innerHTML = p.freeTier
+    ? `<b>What it costs.</b> ${esc(p.freeNote)} Beyond that it is about ${
+      perApp < 0.001 ? 'nothing' : `US$${perApp.toFixed(3)}`} an application. Job Desk also `
+      + 'enforces its own monthly limit, $10 out of the box, before every single request.'
+    : `<b>What it costs.</b> About US$${perApp.toFixed(3)} (₹${Math.round(perApp * 88)}) for each `
+      + 'application you tailor, prepaid. Job Desk enforces its own monthly limit, $10 out of the '
+      + 'box, before every single request.';
+  $('#w-provider-data').innerHTML = `<b>What it sees.</b> ${esc(p.dataNote)}`;
+}
+
 VIEWS.welcome = async function welcome() {
   // Entering the view always starts at step one, whatever was on screen before.
   if (!pendingImport) {
@@ -773,14 +801,28 @@ VIEWS.welcome = async function welcome() {
 
   $('#w-key-skip').onclick = finish;
 
+  /* The provider picker. Gemini is first because its free tier is the only one
+     that lets somebody try tailoring without paying anything at all. */
+  let providerInfo = null;
+  try {
+    const list = await call(window.api.ai.providers, {});
+    providerInfo = list;
+    $('#w-provider').innerHTML = list.providers
+      .map((p) => `<option value="${esc(p.id)}" ${p.id === list.current ? 'selected' : ''}>${
+        esc(p.label)}${p.freeTier ? ' — has a free tier' : ''}</option>`).join('');
+    describeProvider(list, list.current);
+    $('#w-provider').onchange = (e) => describeProvider(list, e.target.value);
+  } catch { /* the step still works; the picker just shows nothing */ }
+
   $('#w-key-save').onclick = async (e) => {
     const btn = e.currentTarget;
     const key = $('#w-key').value.trim();
+    const provider = $('#w-provider').value || undefined;
     if (!key) { toast('Paste the key first, or press Skip for now.', 'warn'); return; }
     busy(btn, 'Checking…');
     $('#w-key-status').textContent = '';
     try {
-      const r = await call(window.api.settings.validateClaudeKey, { key });
+      const r = await call(window.api.settings.validateClaudeKey, { key, provider });
       $('#w-key').value = '';
       toast(r.message || 'The key works. Tailoring is on.');
       finish();
@@ -1285,7 +1327,7 @@ VIEWS.settings = async function settingsView() {
   <div class="grid-2">
 
     <section class="panel">
-      <div class="panel__head"><h3>Claude — optional</h3>
+      <div class="panel__head"><h3>AI tailoring — optional</h3>
         <span class="pill pill--${s.aiEnabled ? 'sent' : 'draft'}">${s.aiEnabled ? 'on' : 'off — app still works'}</span>
       </div>
       <p class="small muted">The app is fully usable without this. A key changes three things:</p>
@@ -1297,17 +1339,24 @@ VIEWS.settings = async function settingsView() {
         <li><b>An honest read on whether you qualify</b> — including blockers like a licence you do
           not hold, which keyword matching cannot see.</li>
       </ul>
-      <p class="small muted">Follow-up notes get written for you too. Billed per use against a prepaid
-        balance — separate from any Claude subscription, which this app cannot touch.
-        <a href="#" data-external="https://console.anthropic.com/settings/keys">Get a key</a>.</p>
+      <p class="small muted">Follow-up notes get written for you too. Billed per use against your own
+        account with whichever service you pick — a consumer chat subscription is a different thing
+        and cannot be used here.</p>
+
+      <label class="field" style="margin-top:var(--s4)"><span>Which service</span>
+        <select id="s-provider"></select>
+        <span class="inline-note" id="s-provider-hint"></span></label>
+      <p class="inline-note" id="s-provider-data" style="margin-top:var(--s2)"></p>
 
       <label class="field" style="margin-top:var(--s4)"><span>API key</span>
-        <input type="password" id="s-claude" placeholder="${s.has_anthropic_key ? '•••••••••••••••• (already saved)' : 'sk-ant-… — leave empty to keep using templates'}"
-               autocomplete="off" spellcheck="false"></label>
+        <input type="password" id="s-claude" placeholder="leave empty to keep the one already saved"
+               autocomplete="off" spellcheck="false">
+        <span class="inline-note"><a href="#" id="s-key-link" data-external="">Get a key</a> —
+          checked against the service before it is saved.</span></label>
       <div class="row" style="margin-top:var(--s3)">
         <button class="btn btn--primary btn--sm" id="s-claude-save">Check and save the key</button>
-        <button class="btn btn--sm" id="s-claude-test" ${s.has_anthropic_key ? '' : 'disabled'}>Check it works</button>
-        ${s.has_anthropic_key ? '<button class="btn btn--ghost btn--sm btn--danger" id="s-claude-clear">Remove it</button>' : ''}
+        <button class="btn btn--sm" id="s-claude-test" ${s.aiEnabled ? '' : 'disabled'}>Check it works</button>
+        ${s.has_anthropic_key || s.has_gemini_key || s.has_openrouter_key ? '<button class="btn btn--ghost btn--sm btn--danger" id="s-claude-clear">Remove it</button>' : ''}
       </div>
 
       <label class="field" style="margin-top:var(--s5)"><span>Which model to use</span>
@@ -1315,8 +1364,9 @@ VIEWS.settings = async function settingsView() {
           ${Object.entries(b.pricing).map(([id, p]) =>
     `<option value="${esc(id)}" ${id === b.model ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}
         </select>
-        <span class="inline-note">Sonnet is the sensible default. Haiku costs about half and is still
-          perfectly good for this — worth trying if the bill matters more than the last 5% of polish.</span>
+        <span class="inline-note" id="s-model-note">A cheaper model is usually good enough for this.
+          The list is refreshed from the service each time a key is checked, so it does not go
+          stale.</span>
       </label>
     </section>
 
@@ -1539,9 +1589,51 @@ VIEWS.settings = async function settingsView() {
   const num = (id) => Number($(id).value);
 
   $('#s-model').addEventListener('change', async (e) => {
-    await patch({ claude_model: e.target.value }, 'Model changed.');
-    go('settings');
+    try {
+      await call(window.api.ai.setModel, { model: e.target.value });
+      toast('Model changed.');
+      go('settings');
+    } catch (err) { oops(err); }
   });
+
+  /* The provider picker. Changing it switches immediately when a key for that
+     service is already stored, and otherwise just waits for one to be typed. */
+  (async () => {
+    let list;
+    try { list = await call(window.api.ai.providers, {}); } catch { return; }
+    const sel = $('#s-provider');
+    if (!sel) return;
+    sel.innerHTML = list.providers.map((p) => `<option value="${esc(p.id)}" ${
+      p.id === list.current ? 'selected' : ''}>${esc(p.label)}${
+      p.freeTier ? ' — has a free tier' : ''}${p.hasKey ? ' (key saved)' : ''}</option>`).join('');
+
+    const paint = (id) => {
+      const p = list.providers.find((x) => x.id === id);
+      if (!p) return;
+      $('#s-provider-hint').textContent = p.keyHint;
+      $('#s-provider-data').innerHTML = `<b>What it sees.</b> ${esc(p.dataNote)}`;
+      $('#s-key-link').dataset.external = p.keyUrl;
+      $('#s-claude').placeholder = p.hasKey
+        ? '•••••••••••••••• (already saved)'
+        : `${p.id === 'gemini' ? 'AIza…' : p.id === 'openrouter' ? 'sk-or-…' : 'sk-ant-…'} — leave empty to keep using templates`;
+    };
+    paint(list.current);
+
+    sel.addEventListener('change', async (e) => {
+      const id = e.target.value;
+      paint(id);
+      const p = list.providers.find((x) => x.id === id);
+      if (!p?.hasKey) {
+        toast(`Paste a ${p.label} key and press Check and save.`, 'warn', 7000);
+        return;
+      }
+      try {
+        await call(window.api.ai.setProvider, { provider: id });
+        toast(`Now using ${p.label}.`);
+        go('settings');
+      } catch (err) { oops(err); }
+    });
+  })();
   $('#s-budget').addEventListener('change', async (e) => {
     const cap = Math.max(0, Number(e.target.value) || 0);
     await patch({ budget_usd_monthly: cap, budget_warned_month: '' },
@@ -1558,7 +1650,8 @@ VIEWS.settings = async function settingsView() {
     btn.disabled = true;
     btn.innerHTML = '<span class="spin"></span> Checking…';
     try {
-      const r = await call(window.api.settings.validateClaudeKey, { key: v });
+      const r = await call(window.api.settings.validateClaudeKey,
+        { key: v, provider: $('#s-provider')?.value || undefined });
       toast(r.message || 'The key works and has been saved.');
       go('settings');
     } catch (err) {
@@ -1650,7 +1743,7 @@ VIEWS.settings = async function settingsView() {
     // eslint-disable-next-line no-alert
     if (!window.confirm('Remove the key? The app carries on with template letters.')) return;
     try {
-      await call(window.api.settings.setSecret, { key: 'anthropic_api_key', value: '' });
+      await call(window.api.settings.setSecret, { key: CURRENT_SECRET(), value: '' });
       toast('Key removed. Applications will use the templates.');
       go('settings');
     } catch (err) { oops(err); }

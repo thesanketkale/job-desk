@@ -54,10 +54,10 @@ async function preview({ filePath, text }) {
   let aiUsed = false;
 
   // A key makes this markedly better, but the app never depends on one.
-  const claude = require('./claude');
-  if (claude.available()) {
+  const ai = require('./ai');
+  if (ai.available()) {
     try {
-      cv = await claude.structureResume(raw, cv);
+      cv = await ai.structureResume(raw, cv);
       aiUsed = true;
     } catch { /* the heuristic parse stands */ }
   }

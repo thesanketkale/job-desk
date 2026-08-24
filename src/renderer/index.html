@@ -120,7 +120,7 @@
             <p class="small muted">Job Desk is fully set up and completely usable right now. This
               one thing is optional, costs money, and you can add it later just as easily.</p>
 
-            <p style="margin-top:var(--s4)"><b>A Claude API key changes three things:</b></p>
+            <p style="margin-top:var(--s4)"><b>An AI key changes three things:</b></p>
             <ul class="notes" style="margin-top:var(--s3);list-style:none;padding-left:0">
               <li><b>Your CV is rewritten for each role</b> — reordered and reworded into the
                 employer's own language, instead of the same CV going to everyone. Your dates,
@@ -132,17 +132,18 @@
                 cannot see any of that.</li>
             </ul>
 
-            <p class="inline-note" style="margin-top:var(--s4)"><b>What it costs.</b> About ₹5
-              (US$0.06) for each application you tailor. It is prepaid — you load credit at
-              console.anthropic.com and when it runs out it simply stops. It is separate from a
-              Claude chat subscription and cannot draw on one. Job Desk also enforces its own
-              monthly limit, $10 out of the box, checked before every single request.</p>
+            <label class="field" style="margin-top:var(--s4)"><span>Which service</span>
+              <select id="w-provider"></select>
+              <span class="inline-note" id="w-provider-hint"></span></label>
 
-            <label class="field" style="margin-top:var(--s4)"><span>Claude API key</span>
-              <input type="password" id="w-key" autocomplete="off" spellcheck="false"
-                placeholder="sk-ant-…">
-              <span class="inline-note">Checked against the API before it is saved, so a wrong key
-                is caught now rather than on your first application. Stored encrypted by Windows.</span></label>
+            <p class="inline-note" id="w-provider-cost" style="margin-top:var(--s3)"></p>
+            <p class="inline-note" id="w-provider-data" style="margin-top:var(--s2)"></p>
+
+            <label class="field" style="margin-top:var(--s4)"><span>API key</span>
+              <input type="password" id="w-key" autocomplete="off" spellcheck="false">
+              <span class="inline-note">Checked against the service before it is saved, so a wrong
+                key is caught now rather than on your first application. Stored encrypted by
+                Windows.</span></label>
 
             <div class="row" style="margin-top:var(--s3)">
               <button class="btn btn--primary" id="w-key-save">Check and save the key</button>
@@ -150,7 +151,7 @@
               <span class="small muted" id="w-key-status"></span>
             </div>
             <p class="small muted" style="margin-top:var(--s3)">
-              <a href="#" data-external="https://console.anthropic.com/settings/keys">Get a key</a> —
+              <a href="#" id="w-key-link" data-external="">Get a key</a> —
               or skip, and add one from Settings whenever you feel like it.</p>
           </section>
 

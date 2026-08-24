@@ -9,8 +9,8 @@
  * without the person seeing it first, which is what makes a good-enough parse
  * good enough.
  *
- * `claude.js` can do this far better when a key exists; both return the same
- * shape, exactly as `templates.js` and `claude.js` already do for applications.
+ * `ai.js` can do this far better when a key exists; both return the same
+ * shape, exactly as `templates.js` and `ai.js` already do for applications.
  */
 const { place, canonCountry, decodeEntities } = require('./normalize');
 

@@ -10,7 +10,7 @@
  *             specialisations, and the terms the resume keeps returning to.
  *   exclude — left empty here. Knowing that a counselling psychologist should
  *             never see psychiatrist roles takes domain knowledge a word count
- *             does not have; `claude.js` suggests these when a key exists, and
+ *             does not have; `ai.js` suggests these when a key exists, and
  *             otherwise they stay the person's to add.
  */
 

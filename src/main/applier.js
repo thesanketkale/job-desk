@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const db = require('./db');
 const settings = require('./settings');
-const claude = require('./claude');
+const ai = require('./ai');
 const templates = require('./templates');
 const mailer = require('./mailer');
 const pdf = require('./resume-pdf');
@@ -53,9 +53,9 @@ async function prepare(jobId, { force = false } = {}) {
   const cv = master();
   // With a key, the CV is rewritten for this role. Without one, the app still
   // works: the master CV goes out with a template letter she can edit.
-  const useAi = claude.available();
+  const useAi = ai.available();
   const tailored = useAi
-    ? { mode: 'ai', ...await claude.tailor(cv, job) }
+    ? { mode: 'ai', ...await ai.tailor(cv, job) }
     : templates.draftApplication(cv, job);
 
   const stamp = now().replace(/[- :]/g, '').slice(0, 15);

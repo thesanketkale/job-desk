@@ -8,23 +8,43 @@
 const db = require('./db');
 const settings = require('./settings');
 
-/** US dollars per million tokens. Verified against claude.com/pricing. */
-const PRICING = {
-  'claude-opus-5':   { in: 5, out: 25, label: 'Opus 5 — most capable, most expensive' },
-  'claude-sonnet-5': { in: 2, out: 10, label: 'Sonnet 5 — the right default' },
-  'claude-haiku-4-5': { in: 1, out: 5, label: 'Haiku 4.5 — half the price, still good' },
-};
-const DEFAULT_MODEL = 'claude-sonnet-5';
+const providers = require('./providers');
 
 const monthKey = (d = new Date()) => d.toISOString().slice(0, 7);
 
-function model() {
-  const m = settings.get('claude_model', DEFAULT_MODEL);
-  return PRICING[m] ? m : DEFAULT_MODEL;
+/**
+ * Which service is in use. An install that already had a Claude key keeps
+ * using it — changing somebody's provider underneath them would silently
+ * change what their applications cost.
+ */
+function providerId() {
+  const chosen = settings.get('ai_provider', '');
+  if (chosen && providers.PROVIDERS[chosen]) return chosen;
+  if (settings.hasSecret('anthropic_api_key')) return 'anthropic';
+  return providers.DEFAULT_PROVIDER;
 }
 
+const provider = () => providers.get(providerId());
+
+/** The price table for the provider in use. */
+const pricing = () => provider().models;
+
+function model() {
+  const p = provider();
+  // `claude_model` is what installs from before multiple providers called it.
+  const m = settings.get('ai_model', '') || settings.get('claude_model', '');
+  if (m && p.models[m]) return m;
+  // A model typed in by hand is allowed: the catalogue here goes stale, the
+  // provider's own list does not. It simply has no price, so it counts as free.
+  if (m && settings.get('ai_model_custom', false)) return m;
+  return p.defaultModel;
+}
+
+const UNPRICED = { in: 0, out: 0, label: 'Typed in by hand — cost not known to the app' };
+
 function priceOf(m = model()) {
-  return PRICING[m] || PRICING[DEFAULT_MODEL];
+  const p = provider();
+  return p.models[m] || p.models[p.defaultModel] || UNPRICED;
 }
 
 function cost(usage = {}, m = model()) {
@@ -58,7 +78,12 @@ function status() {
     percent: cap > 0 ? Math.min(100, Math.round((spent / cap) * 100)) : 0,
     model: model(),
     modelLabel: priceOf().label,
-    pricing: PRICING,
+    pricing: pricing(),
+    provider: providerId(),
+    providerLabel: provider().label,
+    freeTier: !!provider().freeTier,
+    freeNote: provider().freeNote || '',
+    dataNote: provider().dataNote || '',
     perApplication: Math.round(typicalCost() * 10000) / 10000,
     history: ledger(),
   };
@@ -117,5 +142,5 @@ function record(usage, m = model(), kind = 'tailor') {
   return { spend, monthTotal: book[key], warning };
 }
 
-module.exports = { PRICING, DEFAULT_MODEL, model, priceOf, cost, typicalCost,
+module.exports = { model, priceOf, pricing, cost, typicalCost, provider, providerId,
   status, checkBeforeCall, record, monthKey, spentThisMonth };

@@ -73,7 +73,7 @@ function fill(template, values) {
     (values[key] !== undefined ? values[key] : full)).replace(/\n{3,}/g, '\n\n').trim();
 }
 
-/** Mirrors what claude.tailor() returns, so the rest of the app cannot tell them apart. */
+/** Mirrors what ai.tailor() returns, so the rest of the app cannot tell them apart. */
 function draftApplication(cv, job) {
   const values = {
     title: job.title || 'the advertised role',

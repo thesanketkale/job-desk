@@ -58,6 +58,11 @@ contextBridge.exposeInMainWorld('api', {
     formats: call('resume:formats'),
   },
   profile: { get: call('profile:get') },
+  ai: {
+    providers: call('ai:providers'),
+    setProvider: call('ai:setProvider'),
+    setModel: call('ai:setModel'),
+  },
   sources: {
     list: call('sources:list'),
     probe: call('sources:probe'),

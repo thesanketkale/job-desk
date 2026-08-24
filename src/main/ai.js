@@ -3,12 +3,16 @@
  * Rewrites the CV against one job description and drafts the email.
  * The prompt forbids invention; the code afterwards enforces it, because a
  * prompt is a request and a guard is a guarantee.
+ *
+ * Which service answers is `providers.js`'s business, not this file's. Every
+ * guard here — the truth enforcement most of all — runs on the reply whatever
+ * produced it, so a cheaper or free provider is never a weaker one on the point
+ * that matters.
  */
-const { postJson } = require('./http');
+const { postJson, getJson } = require('./http');
 const settings = require('./settings');
 const budget = require('./budget');
-
-const API = 'https://api.anthropic.com/v1/messages';
+const providers = require('./providers');
 
 const SYSTEM = `You are helping a specific, real candidate apply for a specific, real job.
 You rewrite their CV so it speaks to this job, and you draft the email they will send.
@@ -90,13 +94,21 @@ Return ONLY a JSON object, no prose, no code fence:
   "additional": {"Languages": "", "Availability": ""}
 }`;
 
+/** The key for whichever provider is selected. */
+function storedKey(id = budget.providerId()) {
+  return settings.getSecret(providers.get(id).secret, '') || '';
+}
+
 function keyOrThrow() {
-  const key = settings.getSecret('anthropic_api_key', '');
-  if (!key) throw new Error('No Claude API key yet. Add one in Settings — it takes two minutes.');
+  const p = budget.provider();
+  const key = storedKey(p.id);
+  if (!key) {
+    throw new Error(`No ${p.label} key yet. Add one in Settings — it takes two minutes.`);
+  }
   return key;
 }
 
-const available = () => !!settings.getSecret('anthropic_api_key', '');
+const available = () => !!storedKey();
 
 function extractJson(text) {
   let s = String(text || '').trim().replace(/^```(?:json)?\s*|\s*```$/gm, '');
@@ -107,34 +119,53 @@ function extractJson(text) {
   try { return JSON.parse(s.slice(a, b + 1)); } catch { return null; }
 }
 
-async function call(system, user, maxTokens = 8000, key = null) {
+async function call(system, user, maxTokens = 8000, opts = {}) {
   budget.checkBeforeCall();               // refuse before spending, not after
-  const model = budget.model();
-  const res = await postJson(API, {
-    model,
-    max_tokens: maxTokens,
-    system,
-    messages: [{ role: 'user', content: user }],
-  }, {
-    // An explicit key is passed only when checking one that is not saved yet.
-    'x-api-key': key || keyOrThrow(),
-    'anthropic-version': '2023-06-01',
-  });
+  const id = opts.provider || budget.providerId();
+  const p = providers.get(id);
+  const model = opts.model || budget.model();
+  // An explicit key is passed only when checking one that is not saved yet.
+  const key = opts.key || keyOrThrow();
 
-  if (res.error) {
-    const m = res.error.message || 'the API refused the request';
-    if (/credit|balance|quota/i.test(m)) throw new Error(`Claude account: ${m}`);
-    if (/authentication|api[- ]key|invalid x-api-key/i.test(m)) {
-      throw new Error('That Claude API key was rejected. Check it in Settings — keys start with "sk-ant-".');
-    }
-    if (/not_found|model/i.test(m)) {
-      throw new Error(`The model "${model}" was not available. Pick a different one in Settings.`);
-    }
-    if (/rate.?limit|overloaded/i.test(m)) throw new Error('Claude is busy right now. Try that role again in a minute.');
-    throw new Error(`Claude: ${m}`);
+  const req = providers.buildRequest(id, { model, system, user, maxTokens, key });
+  const raw = await postJson(req.url, req.body, req.headers);
+  const out = providers.parseResponse(id, raw);
+
+  if (out.error) throw new Error(friendlyError(out.error, p, model));
+  if (!out.text) throw new Error(`${p.label} replied with nothing usable. Try that role again.`);
+  return { text: out.text, usage: out.usage || {}, model };
+}
+
+/** The provider's complaint, turned into something worth reading. */
+function friendlyError(message, p, model) {
+  const m = String(message);
+  if (/credit|balance|quota|billing|insufficient/i.test(m)) {
+    return `${p.label} says the account is out of credit: ${m}`;
   }
-  const text = (res.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
-  return { text, usage: res.usage || {}, model };
+  if (/api[- ]?key|authenticat|unauthor|permission|invalid.*key|401|403/i.test(m)) {
+    return `That ${p.label} key was rejected. Check it in Settings. ${p.keyHint}`;
+  }
+  if (/not.?found|model|unsupported|does not exist|404/i.test(m)) {
+    return `The model "${model}" was not available on ${p.label}. Pick a different one in Settings.`;
+  }
+  if (/rate.?limit|overloaded|resource.?exhausted|429|too many/i.test(m)) {
+    return p.freeTier
+      ? `${p.label} is rate limiting the free tier right now. Wait a minute and try that role again.`
+      : `${p.label} is busy right now. Try that role again in a minute.`;
+  }
+  return `${p.label}: ${m}`;
+}
+
+/** The live model list, so the stale table in providers.js is never the only source. */
+async function listModels(id = budget.providerId(), key = null) {
+  const p = providers.get(id);
+  if (!p.modelsUrl) return [];
+  const headers = p.wire === 'anthropic'
+    ? { 'x-api-key': key || storedKey(id), 'anthropic-version': '2023-06-01' }
+    : { Authorization: `Bearer ${key || storedKey(id)}` };
+  try {
+    return providers.parseModelList(id, await getJson(p.modelsUrl, headers));
+  } catch { return []; }          // a missing list is not worth failing a save over
 }
 
 /**
@@ -206,7 +237,8 @@ async function structureResume(rawText, fallback = null) {
   const out = extractJson(reply);
   if (!out || !out.name) {
     if (fallback) return fallback;
-    throw new Error('Claude could not read that resume. Check the text, or edit the details by hand.');
+    throw new Error(`${budget.provider().label} could not read that resume. `
+      + 'Check the text, or edit the details by hand.');
   }
   enforceResumeTruth(text, out);
   if (!out.name && fallback) out.name = fallback.name;
@@ -232,7 +264,12 @@ ${jd}`;
   const { text, usage, model } = await call(SYSTEM, user);
   const spend = budget.record(usage, model, 'tailor');
   const out = extractJson(text);
-  if (!out?.resume) throw new Error('Claude replied with something the app could not read. Try that role again.');
+  if (!out?.resume) {
+    // Weaker and free models are markedly worse at returning clean JSON, so this
+    // says which service produced the mess rather than blaming the app.
+    throw new Error(`${budget.provider().label} replied with something the app could not read. `
+      + 'Try that role again, or pick a stronger model in Settings.');
+  }
 
   const dropped = enforceTruth(master, out.resume);
   const notes = (out.match_notes || []).filter(Boolean).map(String);
@@ -270,26 +307,31 @@ BACKGROUND IN ONE LINE: ${cv.pitch || cv.summary || 'An experienced professional
 }
 
 /** A deliberately tiny request, so checking a key costs a fraction of a paisa. */
-async function ping(key = null) {
-  const { usage, model } = await call('Reply with the single word: ok', 'ping', 16, key);
+async function ping(opts = {}) {
+  const id = opts.provider || budget.providerId();
+  const { usage, model } = await call('Reply with the single word: ok', 'ping', 16,
+    { ...opts, provider: id });
   budget.record(usage, model, 'key check');
-  return { ok: true, message: `The key works. Using ${budget.priceOf(model).label.split(' —')[0]}.` };
+  return {
+    ok: true,
+    provider: id,
+    model,
+    message: `The key works. Using ${providers.get(id).label} on ${model}.`,
+  };
 }
 
 /**
  * Checks a key that has not been saved yet, so a rejected one is never stored.
  * The obvious shape mistakes are caught locally, before spending anything.
  */
-async function validateKey(key) {
+async function validateKey(key, providerId = budget.providerId()) {
+  const p = providers.get(providerId);
   const k = String(key || '').trim();
-  if (!k) throw new Error('Paste the key first. Console keys begin with "sk-ant-".');
-  if (!k.startsWith('sk-ant-')) {
-    throw new Error('That does not look like a Claude API key — they begin with "sk-ant-". '
-      + 'Check you copied the whole thing from console.anthropic.com.');
-  }
-  if (k.length < 30) throw new Error('That key looks truncated. Copy the whole value.');
-  return ping(k);
+  if (!k) throw new Error(`Paste the key first. ${p.keyHint}`);
+  const wrong = p.keyLooksWrong ? p.keyLooksWrong(k) : '';
+  if (wrong) throw new Error(wrong);          // caught locally, before spending
+  return ping({ key: k, provider: providerId });
 }
 
 module.exports = { available, tailor, followup, enforceTruth, extractJson, ping, validateKey,
-  structureResume, enforceResumeTruth };
+  structureResume, enforceResumeTruth, listModels, storedKey };

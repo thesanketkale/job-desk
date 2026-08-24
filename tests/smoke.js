@@ -20,7 +20,7 @@ db.init(dir);
 
 const normalize = require('../src/main/normalize');
 const score = require('../src/main/score');
-const claude = require('../src/main/claude');
+const claude = require('../src/main/ai');
 const settings = require('../src/main/settings');
 const seed = require('../src/main/seed');
 const { buildScript } = require('../src/main/autofill-script');
@@ -146,21 +146,57 @@ ok('it does not mangle acronyms', bare.email_body.includes('IVF'));
 group('The spending guard');
 seed.seedIfEmpty();
 const budget = require('../src/main/budget');
-settings.set('claude_model', 'claude-sonnet-5');
+const providers = require('../src/main/providers');
+
+/* Gemini is the default because its free tier is the only one that lets
+   somebody try tailoring without paying. Anthropic stays a first-class choice. */
+settings.set('ai_provider', 'gemini');
+settings.set('ai_model', '');
 settings.set('budget_usd_monthly', 10);
 settings.set('spend_by_month', {});
-ok('the default model is current', budget.model() === 'claude-sonnet-5', budget.model());
-ok('an unknown model falls back safely',
-  (settings.set('claude_model', 'nonsense-model'), budget.model()) === 'claude-sonnet-5');
-settings.set('claude_model', 'claude-sonnet-5');
-ok('a typical application costs a few cents',
+
+ok('a brand new install defaults to the free-tier provider',
+  budget.providerId() === 'gemini', budget.providerId());
+ok('and to that provider\'s own default model',
+  budget.model() === providers.get('gemini').defaultModel, budget.model());
+ok('an unknown model falls back inside the same provider',
+  (settings.set('ai_model', 'nonsense-model'), budget.model()) === providers.get('gemini').defaultModel,
+  budget.model());
+settings.set('ai_model', '');
+
+ok('a model from another provider is not silently accepted',
+  (settings.set('ai_model', 'claude-sonnet-5'), budget.model()) !== 'claude-sonnet-5', budget.model());
+settings.set('ai_model', '');
+
+/* An install that already had a Claude key must keep using it: changing
+   somebody's provider underneath them changes what their applications cost. */
+settings.set('ai_provider', '');
+settings.setSecret('anthropic_api_key', 'sk-ant-existing-install');
+ok('an install with a Claude key already keeps Claude', budget.providerId() === 'anthropic',
+  budget.providerId());
+ok('and keeps a Claude default model', budget.model() === 'claude-sonnet-5', budget.model());
+settings.setSecret('anthropic_api_key', '');
+
+/* Costs, per provider. */
+settings.set('ai_provider', 'anthropic');
+settings.set('ai_model', 'claude-sonnet-5');
+ok('a tailored application on Claude costs a few cents',
   budget.typicalCost() > 0.02 && budget.typicalCost() < 0.12, budget.typicalCost().toFixed(4));
 ok('haiku costs about half of sonnet',
   budget.typicalCost('claude-haiku-4-5') < budget.typicalCost('claude-sonnet-5') * 0.55);
 
+settings.set('ai_provider', 'gemini');
+settings.set('ai_model', '');
+ok('the same application on Gemini costs less than on Claude',
+  budget.typicalCost() < 0.02, budget.typicalCost().toFixed(4));
+
+/* The cap has to stop it whatever the per-call price is. */
+settings.set('ai_provider', 'anthropic');
+settings.set('ai_model', 'claude-sonnet-5');
+settings.set('spend_by_month', {});
 let allowed = 0;
 let stopMessage = '';
-for (let i = 0; i < 400; i++) {
+for (let i = 0; i < 4000; i++) {
   try { budget.checkBeforeCall(); } catch (e) { stopMessage = e.message; break; }
   budget.record({ input_tokens: 8000, output_tokens: 4000 });
   allowed++;
@@ -174,6 +210,8 @@ try { budget.checkBeforeCall(); } catch { uncapped = false; }
 ok('zero means no limit', uncapped);
 settings.set('budget_usd_monthly', 10);
 settings.set('spend_by_month', {});
+settings.set('ai_provider', 'gemini');
+settings.set('ai_model', '');
 
 /* ------------------------------------------------------------- secrets */
 group('Keeping credentials out of the open');
@@ -600,28 +638,79 @@ group('Making the CV files');
     reparsed.cv.contact.email);
 
   /* ------------------------------------------------ checking an API key ---- */
-  group('Checking a Claude key before saving it');
-  for (const [what, key] of [
-    ['an empty key', ''],
-    ['a key with the wrong prefix', 'abcdef0123456789abcdef0123456789'],
-    ['a truncated key', 'sk-ant-abc'],
-  ]) {
-    let msg = '';
-    try { await claude.validateKey(key); } catch (e) { msg = e.message; }
-    ok(`${what} is refused before any request is made`, !!msg, msg.slice(0, 60));
-    ok(`${what} is refused in plain language`,
-      !/undefined|\[object|TypeError|ECONN/.test(msg), msg.slice(0, 60));
+  group('Checking an API key before saving it');
+  // Each service has its own key shape, and the wrong one is caught locally —
+  // before a request is made, and before anything is stored.
+  const KEY_CASES = [
+    { provider: 'gemini', says: 'AIza', good: `AIza${'x'.repeat(35)}`,
+      bad: ['', 'sk-ant-abcdefghijklmnopqrst', 'nope'] },
+    { provider: 'anthropic', says: 'sk-ant-', good: `sk-ant-${'x'.repeat(40)}`,
+      bad: ['', `AIza${'x'.repeat(35)}`, 'sk-ant-abc'] },
+    { provider: 'openrouter', says: 'sk-or-', good: `sk-or-v1-${'x'.repeat(40)}`,
+      bad: ['', 'sk-ant-abcdefghijklmnopqrst'] },
+  ];
+  for (const c of KEY_CASES) {
+    for (const bad of c.bad) {
+      let msg = '';
+      try { await claude.validateKey(bad, c.provider); } catch (e) { msg = e.message; }
+      ok(`${c.provider} refuses "${bad.slice(0, 12) || '(empty)'}" without a request`,
+        !!msg, msg.slice(0, 60));
+      ok(`${c.provider} refuses it in plain language`,
+        !/undefined|\[object|TypeError|ECONN/.test(msg), msg.slice(0, 60));
+    }
+    ok(`${c.provider} says what a real key looks like`, await (async () => {
+      try { await claude.validateKey('nope', c.provider); return false; }
+      catch (e) { return e.message.includes(c.says); }
+    })());
+    // A well-shaped key has to get past the local checks and fail on the network,
+    // which is what proves the shape check is not the thing rejecting it.
+    ok(`${c.provider} lets a well-formed key through to the service`, await (async () => {
+      try { await claude.validateKey(c.good, c.provider); return false; }
+      catch (e) { return !/begin with|truncated|Paste the key/.test(e.message); }
+    })());
   }
-  ok('the refusal says what a real key looks like', await (async () => {
-    try { await claude.validateKey('nope'); return false; }
-    catch (e) { return e.message.includes('sk-ant-'); }
-  })());
-  // A well-shaped key has to get past the local checks and fail on the network,
-  // which is what proves the shape check is not the thing rejecting it.
-  ok('a well-formed key is not refused locally', await (async () => {
-    try { await claude.validateKey(`sk-ant-${'x'.repeat(40)}`); return false; }
-    catch (e) { return !/begin with|truncated|Paste the key/.test(e.message); }
-  })());
+
+  /* --------------------------------------------- one shape, many services -- */
+  group('Talking to more than one service');
+  for (const id of providers.ids()) {
+    const p = providers.get(id);
+    const req = providers.buildRequest(id,
+      { model: 'm', system: 'SYS', user: 'USER', maxTokens: 99, key: 'KEY' });
+    ok(`${id} is given a real endpoint`, /^https:\/\//.test(req.url), req.url);
+    ok(`${id} carries the key in the header its API expects`,
+      p.wire === 'anthropic' ? req.headers['x-api-key'] === 'KEY'
+        : req.headers.Authorization === 'Bearer KEY', JSON.stringify(req.headers));
+    ok(`${id} sends the system prompt where its API looks for it`,
+      p.wire === 'anthropic' ? req.body.system === 'SYS'
+        : req.body.messages[0].role === 'system' && req.body.messages[0].content === 'SYS');
+    ok(`${id} sends the question`, JSON.stringify(req.body.messages).includes('USER'));
+  }
+
+  // Whatever the wire format, everything above providers.js sees one shape.
+  const fromAnthropic = providers.parseResponse('anthropic', {
+    content: [{ type: 'text', text: 'hello' }], usage: { input_tokens: 11, output_tokens: 22 },
+  });
+  const fromOpenai = providers.parseResponse('gemini', {
+    choices: [{ message: { content: 'hello' } }], usage: { prompt_tokens: 11, completion_tokens: 22 },
+  });
+  ok('both wire formats yield the same text',
+    fromAnthropic.text === 'hello' && fromOpenai.text === 'hello');
+  ok('and the same token names the ledger already speaks',
+    fromOpenai.usage.input_tokens === 11 && fromOpenai.usage.output_tokens === 22,
+    JSON.stringify(fromOpenai.usage));
+  ok('an error is surfaced, not swallowed',
+    providers.parseResponse('gemini', { error: { message: 'nope' } }).error === 'nope');
+  ok('a reply with no answer in it is an error, not empty text',
+    !!providers.parseResponse('gemini', { choices: [] }).error);
+  ok('content returned as parts is joined',
+    providers.parseResponse('gemini',
+      { choices: [{ message: { content: [{ text: 'a' }, { text: 'b' }] } }] }).text === 'ab');
+  ok('the live model list is read from whatever the service calls it',
+    providers.parseModelList('gemini', { data: [{ id: 'models/gemini-3.5-flash' }] })[0]
+      === 'gemini-3.5-flash');
+  ok('the truth guard does not care which service replied',
+    typeof claude.enforceTruth === 'function' && typeof claude.enforceResumeTruth === 'function');
+
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   // Windows keeps an open SQLite file locked, so close it before removing the folder.

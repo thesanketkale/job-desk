@@ -53,7 +53,7 @@ const history = (limit = 60) => db.all(
 
 /** Writes the follow-up text and stores it as a draft on the follow-up row. */
 async function draft(followupId) {
-  const claude = require('./claude');
+  const ai = require('./ai');
   const templates = require('./templates');
   const { master } = require('./master');
   const f = db.get('SELECT * FROM followups WHERE id = ?', [followupId]);
@@ -64,8 +64,8 @@ async function draft(followupId) {
   const sentAt = a.sent_at ? new Date(`${a.sent_at.replace(' ', 'T')}Z`).getTime() : Date.now();
   const daysSince = Math.max(1, Math.round((Date.now() - sentAt) / 86400000));
 
-  const out = claude.available()
-    ? await claude.followup({ job, application: a, daysSince, seq: f.seq, cv: master() })
+  const out = ai.available()
+    ? await ai.followup({ job, application: a, daysSince, seq: f.seq, cv: master() })
     : templates.draftFollowup(master(), job, daysSince);
   db.update('followups', { subject: out.subject.slice(0, 255), body_text: out.body }, 'id = ?', [followupId]);
   return db.get('SELECT * FROM followups WHERE id = ?', [followupId]);

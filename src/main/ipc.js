@@ -7,7 +7,7 @@ const db = require('./db');
 const settings = require('./settings');
 const applier = require('./applier');
 const followups = require('./followups');
-const claude = require('./claude');
+const ai = require('./ai');
 const budget = require('./budget');
 const mailer = require('./mailer');
 const sources = require('./sources');
@@ -19,6 +19,7 @@ const templates = require('./templates');
 const updater = require('./updater');
 const profile = require('./profile');
 const resumeRead = require('./resume-read');
+const providers = require('./providers');
 
 /** Every handler returns {ok:true, data} or {ok:false, error} — the interface
  *  never has to guess whether something threw. */
@@ -112,7 +113,7 @@ function register(ctx) {
   /* -------------------------------------------------- applications ----- */
 
   handle('apply:prepare', ({ jobId, force }) => applier.prepare(jobId, { force }));
-  handle('apply:mode', () => ({ ai: claude.available() }));
+  handle('apply:mode', () => ({ ai: ai.available() }));
   handle('apply:save', ({ id, ...fields }) => applier.save(id, fields));
   handle('apply:send', ({ id }) => applier.send(id));
   handle('apply:get', ({ id }) => applier.get(id));
@@ -218,7 +219,7 @@ function register(ctx) {
     spend_usd: Number(settings.get('spend_usd', 0)),
     tailor_count: Number(settings.get('tailor_count', 0)),
     budget: budget.status(),
-    aiEnabled: claude.available(),
+    aiEnabled: ai.available(),
     templates: templates.current(),
   }));
   handle('templates:reset', () => {
@@ -235,24 +236,77 @@ function register(ctx) {
     return settings.redacted();
   });
   handle('settings:setSecret', ({ key, value }) => {
-    if (!['anthropic_api_key', 'smtp_password', 'adzuna', 'usajobs'].includes(key)) {
+    if (!['anthropic_api_key', 'gemini_api_key', 'openrouter_api_key',
+      'smtp_password', 'adzuna', 'usajobs'].includes(key)) {
       throw new Error('Unknown credential.');
     }
     settings.setSecret(key, value);
     return settings.redacted();
   });
   handle('settings:testMail', () => mailer.verify());
-  handle('settings:testClaude', () => claude.ping());
+  handle('settings:testClaude', () => ai.ping());
+
+  /** Everything the interface needs to draw the provider picker. */
+  handle('ai:providers', () => ({
+    providers: providers.catalogue().map((p) => ({
+      ...p,
+      hasKey: settings.hasSecret(providers.get(p.id).secret),
+      models: { ...p.models, ...savedModels(p.id) },
+    })),
+    current: budget.providerId(),
+    model: budget.model(),
+  }));
+
+  /** The provider's own model list, cached so the table in providers.js can go stale. */
+  const savedModels = (id) => {
+    const live = settings.get(`ai_models_${id}`, []);
+    if (!Array.isArray(live)) return {};
+    const known = providers.get(id).models;
+    const out = {};
+    for (const m of live) if (!known[m]) out[m] = { in: 0, out: 0, label: m };
+    return out;
+  };
 
   /**
    * Checks a typed key against the real API and saves it only if it works, so a
-   * rejected key never ends up stored and silently failing later.
+   * rejected key never ends up stored and silently failing later. Switching
+   * provider is part of the same action — a key is meaningless without one.
    */
-  handle('settings:validateClaudeKey', async ({ key }) => {
-    const result = await claude.validateKey(key);
-    settings.setSecret('anthropic_api_key', String(key).trim());
-    db.logActivity('claude_key_added', 'The Claude key was checked and saved.');
-    return result;
+  handle('settings:validateClaudeKey', async ({ key, provider: wanted }) => {
+    const id = wanted && providers.PROVIDERS[wanted] ? wanted : budget.providerId();
+    const result = await ai.validateKey(key, id);
+
+    settings.setSecret(providers.get(id).secret, String(key).trim());
+    settings.set('ai_provider', id);
+    // A model chosen for the old provider means nothing to the new one.
+    if (wanted && wanted !== budget.providerId()) settings.set('ai_model', '');
+
+    // Ask the provider what it actually offers, so the picker is never stale.
+    const live = await ai.listModels(id, String(key).trim());
+    if (live.length) settings.set(`ai_models_${id}`, live.slice(0, 200));
+
+    db.logActivity('ai_key_added', `The ${providers.get(id).label} key was checked and saved.`);
+    return { ...result, models: live };
+  });
+
+  /** Switching provider without retyping a key that is already stored. */
+  handle('ai:setProvider', ({ provider: wanted, model }) => {
+    if (!providers.PROVIDERS[wanted]) throw new Error('Unknown provider.');
+    settings.set('ai_provider', wanted);
+    if (model !== undefined) {
+      settings.set('ai_model', String(model || ''));
+      settings.set('ai_model_custom', !!model && !providers.get(wanted).models[model]);
+    } else {
+      settings.set('ai_model', '');
+    }
+    return { provider: budget.providerId(), model: budget.model(), aiEnabled: ai.available() };
+  });
+
+  handle('ai:setModel', ({ model }) => {
+    const id = budget.providerId();
+    settings.set('ai_model', String(model || ''));
+    settings.set('ai_model_custom', !!model && !providers.get(id).models[model]);
+    return { model: budget.model() };
   });
   handle('settings:sendTestEmail', async ({ to }) => {
     const cvPath = path.join(db.paths.resumes, 'master-preview.pdf');
@@ -432,7 +486,7 @@ function register(ctx) {
         try { return masterCv.master().name; } catch { return ''; }
       })(),
       canSendEmail: settings.hasSecret('smtp_password') && !!settings.get('smtp_user', ''),
-      aiEnabled: claude.available(),
+      aiEnabled: ai.available(),
       onboarded: !!settings.get('onboarded', false),
     };
   });

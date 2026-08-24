@@ -29,7 +29,9 @@ const DEFAULTS = {
   onboarded: false,
 };
 
-const SECRET_KEYS = new Set(['anthropic_api_key', 'smtp_password', 'adzuna', 'usajobs']);
+// One key per provider, kept separately so switching back does not lose the other.
+const SECRET_KEYS = new Set(['anthropic_api_key', 'gemini_api_key', 'openrouter_api_key',
+  'smtp_password', 'adzuna', 'usajobs']);
 
 function get(key, fallback = undefined) {
   const row = db.get('SELECT v FROM settings WHERE k = ?', [key]);
@@ -116,6 +118,8 @@ function redacted() {
     smtp_from_name: get('smtp_from_name', ''),
     smtp_from_email: get('smtp_from_email', ''),
     has_anthropic_key: hasSecret('anthropic_api_key'),
+    has_gemini_key: hasSecret('gemini_api_key'),
+    has_openrouter_key: hasSecret('openrouter_api_key'),
     has_smtp_password: hasSecret('smtp_password'),
     has_adzuna: !!(getSecret('adzuna', {}).app_id),
     encryption_available: !!safeStorage?.isEncryptionAvailable(),

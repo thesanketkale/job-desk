@@ -8,7 +8,7 @@ Srishti Sharma, a counselling psychologist. Electron on Windows, no server.
 ```bash
 npm install
 npm start            # npm run dev opens devtools
-npm test             # 190 checks, no Electron and no network needed
+npm test             # 228 checks, no Electron and no network needed
 ```
 
 `npm test` needs Node 22.5+ on the system PATH (`node:sqlite` isn't available
@@ -27,7 +27,7 @@ user's data folder.
 
 ## Rules that are load-bearing, not stylistic
 
-**Never let the model invent CV content.** `claude.js` asks for a rewrite, and
+**Never let the model invent CV content.** `ai.js` asks for a rewrite, and
 `enforceTruth()` then overwrites employers, dates, education and certifications
 from the master CV and deletes any experience entry that cannot be traced back to
 a real one. If you touch the tailoring path, that function must still run last.
@@ -42,17 +42,31 @@ cooldown, valid recipient, already-sent, unfilled placeholder. Anything that can
 send must go through `applier.send()`.
 
 **Spending is checked before the request, not after.** `budget.checkBeforeCall()`
-runs first in `claude.js#call`. Prices are in `budget.js` and go stale — verify
-against claude.com/pricing before trusting them.
+runs first in `ai.js#call`. Prices live per provider in `providers.js` and go
+stale — verify against that provider's own pricing page before trusting them.
+
+**One shape above `providers.js`.** Anthropic has its own wire format; Google,
+OpenRouter and OpenAI all speak OpenAI-compatible `/chat/completions`, so there
+are exactly two adapters and adding a provider is a table entry. Everything above
+sees `{text, usage}` with Anthropic's token names. `enforceTruth` and
+`enforceResumeTruth` run on the reply whatever produced it — a cheaper provider is
+never a weaker guarantee.
+
+**Gemini is the default because its free tier is real.** `budget.providerId()`
+falls back to `anthropic` when an install already has a Claude key, so nobody's
+provider changes underneath them. Model ids are scoped to the provider and the
+live list is fetched on key validation, because the table in `providers.js` goes
+stale — same as the prices.
 
 **The app works with no API key.** `templates.js` is the free path; `applier.prepare()`
-branches on `claude.available()` and both branches return the same shape. Any new
+branches on `ai.available()` and both branches return the same shape. Any new
 feature that only works with a key needs a template fallback or a clear reason.
 Onboarding asks for a key *after* setup is complete and Skip is a first-class
 button, because the app is genuinely finished at that point.
 
-**A key is checked before it is stored.** `claude.validateKey()` tests the shape
-locally, then spends a fraction of a paisa proving it against the API;
+**A key is checked before it is stored.** `ai.validateKey()` tests the shape
+against that provider's format locally, then spends a fraction of a paisa proving
+it against the real API;
 `settings:validateClaudeKey` saves only on success. A key that is saved but wrong
 looks like it is working until the first application fails.
 
@@ -87,7 +101,8 @@ a CI step guarding it.
 | `src/main/sources.js` | One adapter per job source. All published APIs; nothing scrapes. |
 | `src/main/normalize.js` | Feed data → one comparable shape. Work mode, place, entities, fingerprints. |
 | `src/main/score.js` | Keyword ranking. Title matches count triple. |
-| `src/main/claude.js` | Tailoring and follow-up drafting, plus the truth guard. |
+| `src/main/ai.js` | Tailoring and follow-up drafting, plus the truth guards. Provider-agnostic. |
+| `src/main/providers.js` | Which service, and the two wire formats. A new provider is a table entry. |
 | `src/main/templates.js` | The no-key path. |
 | `src/main/applier.js` | Prepare, send, rails, status. |
 | `src/main/apply-browser.js` | The in-app browser. Uses CDP `DOM.setFileInputFiles` to attach the CV. |

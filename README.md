@@ -37,11 +37,16 @@ generating CV documents, sending applications, filling company forms, tracking,
 follow-ups. In that mode it sends your full CV with a template letter that names
 the role and describes your background, and leaves you one sentence to write.
 
-An optional Claude API key adds three things: the CV is rewritten for each role,
-the email is written from the job description, and you get an honest read on
-whether you actually qualify — including blockers like a licence you do not hold.
-About ₹5 (US$0.06) per application, prepaid, with a monthly cap the app enforces
-itself before every request.
+An optional AI key adds three things: the CV is rewritten for each role, the email
+is written from the job description, and you get an honest read on whether you
+actually qualify — including blockers like a licence you do not hold.
+
+Three services work: **Google Gemini** (the default — its free tier covers roughly
+1,000 requests a day, no card needed), **Anthropic Claude**, and **OpenRouter**.
+Whichever you pick, the app enforces its own monthly cap before every request, and
+the anti-fabrication guard runs on the reply regardless of which service produced
+it. Note that a Gemini Pro or Claude chat subscription is a consumer product and
+does not include API access — the key comes from the developer console instead.
 
 ## Why it is built this way
 
@@ -106,7 +111,8 @@ Find new jobs
   → jobs table
 
 Tailor & apply
-  → claude.js     rewrites the CV against the description, drafts the email
+  → ai.js         rewrites the CV against the description, drafts the email
+  → providers.js  Gemini / Claude / OpenRouter — two wire formats, one shape out
   → enforceTruth  employers, dates, education and certifications are overwritten
                   from the master CV afterwards; any experience entry that cannot
                   be traced back to a real one is deleted
@@ -183,7 +189,7 @@ rather than failing silently.
 ```bash
 npm install
 npm start          # or: npm run dev   (opens developer tools)
-npm test           # 190 checks, no Electron or network needed
+npm test           # 228 checks, no Electron or network needed
 ```
 
 `npm start` and `npm run dev` work on any recent Node, because Electron brings

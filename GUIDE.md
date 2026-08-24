@@ -71,9 +71,26 @@ this.
 
 The app offers this once, right after it reads your resume, and **Skip for now**
 there costs you nothing — everything above keeps working. You can add a key later
-from Settings → *Claude*, or change one you have already added, and the app
-checks it against the API before saving so a mistyped key is caught immediately
-rather than on your first application.
+from Settings → *AI tailoring*, or change one you have already added, and the app
+checks it against the service before saving so a mistyped key is caught
+immediately rather than on your first application.
+
+**Which service.** Three work, and you can switch at any time:
+
+| | |
+|---|---|
+| **Google Gemini** | The default. Its free tier covers roughly 1,000 requests a day and needs no card — enough to tailor every application most people send. Get a key from aistudio.google.com. |
+| **Anthropic Claude** | Prepaid, about ₹5 an application. The strongest results. |
+| **OpenRouter** | One key, many models. Model names ending `:free` cost nothing but are rate limited hard and come and go. |
+
+**A subscription is not an API key.** A Gemini Pro or Claude chat subscription is
+a consumer product and does not include API access — the key comes from the
+developer console instead, and Google's has its own separate free tier.
+
+**What the service sees.** Tailoring sends your whole CV. Anthropic does not train
+on it. Google's *free* tier may use it to improve its models, and its paid tier
+does not. Most free OpenRouter models allow training. The app tells you which is
+which next to the picker, so the choice is yours to make knowingly.
 
 It changes three things:
 
@@ -93,12 +110,11 @@ any of that, so without a key the score is only ever "these words appeared".
 
 It also writes your follow-up notes for you instead of using the template.
 
-**What it costs.** About ₹5 per application. It is prepaid — you load credit at
-console.anthropic.com and when it runs out it simply stops. It is completely
-separate from a Claude chat subscription and cannot touch one. The app also has
-its own monthly limit, set to $10 out of the box, which it checks before every
-single request; there is a cheaper model (Haiku) in the same settings if you want
-to halve it.
+**What it costs.** Nothing at all on Gemini's free tier, within its daily limits.
+On a paid service it is a few rupees an application, prepaid — when the credit
+runs out it simply stops. The app also has its own monthly limit, set to $10 out
+of the box, which it checks before every single request, and there is a cheaper
+model in the same settings if you want to halve it.
 
 You can add a key later, remove it at any time, and nothing else changes.
 
