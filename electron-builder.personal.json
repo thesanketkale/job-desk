@@ -1,0 +1,19 @@
+{
+  "extends": null,
+  "appId": "com.srishtisharma.jobdesk",
+  "productName": "Job Desk",
+  "directories": { "output": "dist-personal", "buildResources": "resources" },
+  "files": ["src/**/*", "resources/**/*", "package.json", "!**/*.map"],
+  "win": {
+    "target": [{ "target": "nsis", "arch": ["x64"] }],
+    "icon": "resources/icon.ico"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "shortcutName": "Job Desk"
+  },
+  "publish": null
+}

@@ -1,0 +1,72 @@
+{
+  "name": "Alex Rivera",
+  "headline": "Counselling Psychologist  •  Therapist  •  Workshop Facilitator",
+  "contact": {
+    "phone": "555-0100",
+    "email": "alex.rivera@example.test",
+    "linkedin": "linkedin.com/in/alexrivera-test",
+    "website": "www.alexrivera.example",
+    "location": "Rivertown, Testland"
+  },
+  "summary": "Counselling Psychologist with over five years of clinical practice across schools, employee assistance programmes and private practice, working with individuals, couples and groups on anxiety, grief and workplace stress.",
+  "pitch": "I am a counselling psychologist with over five years of clinical practice across employee assistance, educational and private-practice settings. My work covers anxiety, grief and workplace stress, and I work primarily from CBT, mindfulness and systemic approaches. I hold an M.Sc. in Counselling Psychology from Rivertown State University.",
+  "competencies": {
+    "Modalities": ["CBT", "Mindfulness", "Systemic Family Therapy"],
+    "Specialisations": ["Anxiety & Stress", "Grief Counselling", "Workplace Mental Health"],
+    "Client Groups": ["Adults", "Couples", "Working Professionals"]
+  },
+  "experience": [
+    {
+      "id": "freelance",
+      "title": "Freelance Counselling Psychologist",
+      "org": "Self-Employed",
+      "location": "Rivertown, Testland — Remote & In-Person",
+      "start": "Apr 2023",
+      "end": "Present",
+      "bullets": ["Delivers individual therapy for adults and couples across anxiety, grief and workplace stress."]
+    },
+    {
+      "id": "lighthouse",
+      "title": "Lead Counselling Psychologist",
+      "org": "Lighthouse Wellness Group",
+      "location": "Rivertown, Testland — Remote",
+      "start": "Dec 2019",
+      "end": "Mar 2023",
+      "bullets": ["Delivered 2,000+ counselling sessions and workshops for corporate and educational partners."]
+    },
+    {
+      "id": "harborcare",
+      "title": "EAP Counsellor",
+      "org": "HarborCare EAP",
+      "location": "Portside, Testland",
+      "start": "Jun 2018",
+      "end": "Dec 2019",
+      "bullets": ["Managed EAP caseloads for working professionals across corporate sectors."]
+    }
+  ],
+  "impact": ["Delivered 2,000+ sessions across EAP, education and private practice."],
+  "education": [
+    {
+      "degree": "M.Sc. Counselling Psychology",
+      "school": "Rivertown State University",
+      "years": "2016 – 2018",
+      "detail": "Distinction | Thesis: Coping Strategies in Remote Work"
+    },
+    {
+      "degree": "B.A. Psychology",
+      "school": "Portside College",
+      "years": "2012 – 2015",
+      "detail": ""
+    }
+  ],
+  "certifications": {
+    "Crisis & Trauma": ["Suicide Prevention Instructor (2022)"],
+    "Therapy Modalities": ["Experiential CBT (2019)"]
+  },
+  "differentiators": ["Structured experience in workplace mental health and grief counselling."],
+  "additional": {
+    "Languages": "English (Fluent)",
+    "Availability": "Open to remote and hybrid roles."
+  },
+  "notes_for_tailoring": "Facts that must never be altered: M.Sc. Rivertown State University 2018, Lighthouse Wellness Group Dec 2019-Mar 2023, HarborCare EAP Jun 2018-Dec 2019."
+}

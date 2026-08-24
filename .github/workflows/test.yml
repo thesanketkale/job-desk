@@ -1,0 +1,45 @@
+name: Tests
+
+# Runs on Linux, which is the cheapest runner, because none of these tests need
+# Electron or Windows. The Windows build only runs when you actually cut a release.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      # Electron's binary is ~100 MB and the tests never launch it.
+      - name: Install dependencies
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
+      - name: Check every file parses
+        run: |
+          for f in $(find src scripts tests -name '*.js' -o -name '*.mjs'); do
+            node --check "$f" || exit 1
+          done
+
+      - name: Run the tests
+        run: npm test
+
+      - name: Refuse to ship secrets
+        run: |
+          if grep -rEn "sk-ant-[A-Za-z0-9_-]{20,}" src resources scripts; then
+            echo "::error::A real API key looks like it was committed."
+            exit 1
+          fi

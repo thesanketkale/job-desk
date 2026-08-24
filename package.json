@@ -1,0 +1,116 @@
+{
+  "name": "jobdesk",
+  "productName": "Job Desk",
+  "version": "1.0.0",
+  "description": "A private, local-first job board and application desk.",
+  "author": {
+    "name": "thesanketkale"
+  },
+  "license": "MIT",
+  "main": "src/main/main.js",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "node tests/smoke.js",
+    "build:win": "electron-builder --win --x64",
+    "build:portable": "electron-builder --win portable --x64",
+    "build:mac": "electron-builder --mac",
+    "build:linux": "electron-builder --linux AppImage",
+    "lint": "node --check src/main/main.js",
+    "release": "node scripts/release.mjs",
+    "build:win:personal": "electron-builder --win --x64 --config electron-builder.personal.json"
+  },
+  "dependencies": {
+    "docx": "^9.5.1",
+    "electron-updater": "^6.8.9",
+    "nodemailer": "^7.0.9",
+    "pdfkit": "^0.17.2"
+  },
+  "devDependencies": {
+    "electron": "^43.4.1",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.jobdesk.app",
+    "productName": "Job Desk",
+    "directories": {
+      "output": "dist",
+      "buildResources": "resources"
+    },
+    "files": [
+      "src/**/*",
+      "resources/**/*",
+      "!resources/master-resume.json",
+      "package.json",
+      "!**/*.map"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "resources/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Job Desk"
+    },
+    "portable": {
+      "artifactName": "JobDesk-portable-${version}.exe"
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ],
+      "category": "public.app-category.productivity"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "thesanketkale",
+        "repo": "job-desk",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/thesanketkale/job-desk.git"
+  },
+  "updates": {
+    "_comment": "channel: 'off' | 'github-public' | 'generic'. See src/main/updater.js.",
+    "channel": "github-public",
+    "url": "",
+    "releasesPage": "https://github.com/thesanketkale/job-desk/releases"
+  },
+  "keywords": [
+    "electron",
+    "job-search",
+    "desktop-app",
+    "local-first",
+    "job-board"
+  ]
+}

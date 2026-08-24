@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:">
+  <title>Apply</title>
+  <link rel="stylesheet" href="app.css">
+  <style>
+    body{overflow:hidden}
+    .bar{height:96px; display:flex; flex-direction:column; justify-content:center; gap:6px;
+      padding:10px var(--s5); background:var(--surface); border-bottom:1px solid var(--hair)}
+    .bar__top{display:flex; align-items:center; gap:var(--s3)}
+    .bar__bottom{display:flex; align-items:center; gap:var(--s2); flex-wrap:nowrap; overflow:hidden}
+    .role{min-width:0; flex:1}
+    .role b{font-family:var(--serif); font-size:var(--t-md); color:var(--ink); display:block;
+      white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+    .role span{font-size:var(--t-xs); color:var(--muted); white-space:nowrap; overflow:hidden;
+      text-overflow:ellipsis; display:block}
+    .url{flex:1; min-width:0; font-size:var(--t-xs); color:var(--muted); white-space:nowrap;
+      overflow:hidden; text-overflow:ellipsis; direction:rtl; text-align:left}
+    .status{font-size:var(--t-xs); color:var(--accent-deep); white-space:nowrap}
+    .status--bad{color:var(--clay)}
+    .icon-btn{width:30px; padding:0; justify-content:center}
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <div class="bar__top">
+      <button class="btn btn--sm icon-btn" id="back" title="Back">←</button>
+      <button class="btn btn--sm icon-btn" id="reload" title="Reload">⟳</button>
+      <div class="role"><b id="role-title">—</b><span id="role-sub"></span></div>
+      <span class="url" id="url"></span>
+      <button class="btn btn--ghost btn--sm" id="close">Close</button>
+    </div>
+    <div class="bar__bottom">
+      <button class="btn btn--primary btn--sm" id="fill">Fill in her details</button>
+      <button class="btn btn--sm" id="attach">Attach the CV</button>
+      <button class="btn btn--sm" id="copy-cover">Copy the covering letter</button>
+      <button class="btn btn--ghost btn--sm" id="reveal">Show me the CV file</button>
+      <span class="spacer"></span>
+      <span class="status" id="status">She presses Submit — the app never does.</span>
+      <button class="btn btn--sm" id="submitted">I have submitted it</button>
+    </div>
+  </div>
+  <script src="apply.js"></script>
+</body>
+</html>

@@ -1,0 +1,74 @@
+name: Release
+
+# Triggered only by pushing a version tag, which `npm run release` does for you:
+#   npm run release          -> v1.0.1
+#   npm run release minor    -> v1.1.0
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write       # to create the release and attach the installers
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the tests before building anything
+        run: npm test
+
+      # Built once, without publishing, so the privacy check happens before
+      # anything can reach a public repository.
+      - name: Build the installer and the portable exe
+        run: npx electron-builder --win --x64 --publish never
+
+      - name: Refuse the build if it contains anything personal
+        run: node scripts/check-build-privacy.mjs dist
+
+      - name: Show what was built
+        shell: bash
+        run: ls -la dist/*.exe dist/*.yml
+
+      # Only now, once the build is known to contain nothing personal, does it
+      # go public. GITHUB_TOKEN is issued automatically for this run — there is
+      # no secret to create, store, or rotate.
+      - name: Publish the release
+        uses: softprops/action-gh-release@v3
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: Job Desk ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+          # latest.yml is what tells the installed app an update exists.
+          # Without it, auto-update silently stops working.
+          files: |
+            dist/*.exe
+            dist/*.exe.blockmap
+            dist/latest.yml
+
+      # A copy that survives even if publishing fails, so a build is never lost.
+      - name: Keep the build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            dist/*.exe
+            dist/*.yml
+          retention-days: 30
+          if-no-files-found: warn

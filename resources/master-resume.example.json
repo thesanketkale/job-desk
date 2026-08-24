@@ -1,0 +1,48 @@
+{
+  "placeholder": true,
+  "name": "Your Name",
+  "headline": "Your profession  •  What you do  •  A third thing",
+  "contact": {
+    "phone": "",
+    "email": "",
+    "linkedin": "",
+    "website": "",
+    "location": ""
+  },
+  "summary": "Two or three sentences describing your background, written in the third person as a CV summary.",
+  "pitch": "The same thing in the first person, as you would write it in an email. This paragraph is what template letters use.",
+  "competencies": {
+    "Skills": [],
+    "Specialisations": [],
+    "Tools": []
+  },
+  "experience": [
+    {
+      "id": "job1",
+      "title": "Job title",
+      "org": "Employer",
+      "location": "City, Country",
+      "start": "Mon YYYY",
+      "end": "Present",
+      "bullets": [
+        "What you did there."
+      ]
+    }
+  ],
+  "impact": [],
+  "education": [
+    {
+      "degree": "Qualification",
+      "school": "Institution",
+      "years": "YYYY – YYYY",
+      "detail": ""
+    }
+  ],
+  "certifications": {},
+  "differentiators": [],
+  "additional": {
+    "Languages": "",
+    "Availability": ""
+  },
+  "notes_for_tailoring": "Facts that must never be altered — dates, employers, qualifications."
+}

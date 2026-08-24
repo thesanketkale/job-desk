@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self'; img-src 'self' data:; connect-src 'none'">
+  <title>Job Desk</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="masthead">
+    <div class="masthead__in">
+      <a class="wordmark" href="#/today"><b>Job Desk</b><span id="wordmark-name"></span></a>
+      <nav class="nav" id="nav">
+        <a href="#/today">Today</a>
+        <a href="#/board">Board</a>
+        <a href="#/applications">Applications</a>
+        <a href="#/followups">Follow-ups <i id="fu-badge" class="pill pill--queued hidden" style="margin-left:6px"></i></a>
+        <a href="#/keywords">Keywords</a>
+        <a href="#/sources">Sources</a>
+        <a href="#/settings">Settings</a>
+      </nav>
+      <span class="spacer"></span>
+      <div class="capacity" id="capacity" title="Applications that may still be sent today"></div>
+    </div>
+    <div class="progress hidden" id="refresh-progress"><i style="width:0%"></i></div>
+  </header>
+
+  <main class="app__body" id="body">
+
+    <!-- -------------------------------------------------------- Welcome -->
+    <section class="view shell" id="view-welcome">
+      <div class="page-head" style="max-width:64ch">
+        <div>
+          <h1>Let's get your CV in</h1>
+          <p>Job Desk is ready to go. It needs one thing first: your CV. Everything the app
+             produces — the documents it generates, the letters it writes, the details it types into
+             company forms — is built from it.</p>
+        </div>
+      </div>
+      <div class="split">
+        <section class="panel">
+          <div class="panel__head"><h3>Paste your CV</h3></div>
+          <p class="small muted">Replace the example values below with your own, keeping the quotes and
+            commas exactly where they are, then press Save. You can change any of it later from
+            Settings, and there is a preview button there to check how it looks.</p>
+          <label class="field" style="margin-top:var(--s4)"><span>CV contents</span>
+            <textarea id="w-cv" class="mono" spellcheck="false" style="min-height:420px"></textarea></label>
+          <div class="row" style="margin-top:var(--s3)">
+            <button class="btn btn--primary" id="w-save">Save my CV</button>
+            <span class="small muted" id="w-status"></span>
+          </div>
+        </section>
+        <aside class="panel">
+          <div class="panel__head"><h3>What happens next</h3></div>
+          <div class="timeline">
+            <div class="timeline__row"><span class="timeline__dot"></span>
+              <span>Your mailbox, so applications send from your own address</span><span></span></div>
+            <div class="timeline__row"><span class="timeline__dot"></span>
+              <span>Press <b>Find new jobs</b> and the board fills up</span><span></span></div>
+            <div class="timeline__row"><span class="timeline__dot"></span>
+              <span>Apply — CV, letter and email are generated for you</span><span></span></div>
+          </div>
+          <p class="inline-note" style="margin-top:var(--s4)">Nothing leaves this computer except job
+            searches and the emails you choose to send.</p>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- Today -->
+    <section class="view shell" id="view-today">
+      <div class="page-head">
+        <div>
+          <h1 id="greeting">Today</h1>
+          <p id="today-sub">Everything worth doing right now, in one place.</p>
+        </div>
+        <span class="spacer"></span>
+        <button class="btn btn--primary" id="btn-refresh">Find new jobs</button>
+      </div>
+      <div id="setup-banner"></div>
+      <div class="hero" id="today-tiles"></div>
+      <div class="split">
+        <section>
+          <div class="panel">
+            <div class="panel__head"><h3>Waiting on her</h3></div>
+            <div id="today-actions"></div>
+          </div>
+        </section>
+        <aside class="panel">
+          <div class="panel__head"><h3>Recent activity</h3></div>
+          <div class="timeline" id="today-activity"></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ---------------------------------------------------------- Board -->
+    <section class="view shell" id="view-board">
+      <div class="page-head">
+        <div>
+          <h1>Roles worth her time</h1>
+          <p id="board-sub">Ranked against the words on the Keywords page.</p>
+        </div>
+        <span class="spacer"></span>
+        <button class="btn" id="btn-refresh-2">Find new jobs</button>
+      </div>
+      <div class="layout">
+        <aside class="rail">
+          <div class="rail__group">
+            <label class="field"><span>Search</span>
+              <input type="search" id="f-q" placeholder="title, employer, phrase" autocomplete="off"></label>
+          </div>
+          <div class="rail__group"><span class="mono-label">Working pattern</span>
+            <div class="seg" id="f-mode">
+              <button type="button" data-mode="" aria-pressed="true">All</button>
+              <button type="button" data-mode="remote" aria-pressed="false">Remote</button>
+              <button type="button" data-mode="hybrid" aria-pressed="false">Hybrid</button>
+              <button type="button" data-mode="onsite" aria-pressed="false">On-site</button>
+            </div>
+          </div>
+          <div class="rail__group"><span class="mono-label">Where</span>
+            <select id="f-country"><option value="">Anywhere</option></select>
+            <input type="text" id="f-city" placeholder="City or state" autocomplete="off">
+          </div>
+          <div class="rail__group"><span class="mono-label">Kind of role</span>
+            <div class="chips" id="f-pool">
+              <button class="chip" type="button" data-pool="clinical" aria-pressed="false">Clinical &amp; therapy</button>
+              <button class="chip" type="button" data-pool="eap" aria-pressed="false">EAP &amp; corporate</button>
+              <button class="chip" type="button" data-pool="ai_expert" aria-pressed="false">AI &amp; tech</button>
+              <button class="chip" type="button" data-pool="education" aria-pressed="false">Education</button>
+              <button class="chip" type="button" data-pool="content" aria-pressed="false">Content &amp; training</button>
+              <button class="chip" type="button" data-pool="general" aria-pressed="false">Other</button>
+            </div>
+          </div>
+          <div class="rail__group"><span class="mono-label">Minimum match</span>
+            <input type="range" id="f-score" min="0" max="90" step="5" value="0">
+            <span class="small muted" id="f-score-out">Any match</span>
+          </div>
+          <div class="rail__group"><span class="mono-label">Source</span>
+            <select id="f-source"><option value="">Every source</option></select>
+          </div>
+          <div class="rail__group">
+            <label class="row small" style="gap:var(--s2)">
+              <input type="checkbox" id="f-unapplied"> Hide ones she has applied to
+            </label>
+            <button class="btn btn--ghost btn--sm" type="button" id="f-reset">Clear all filters</button>
+          </div>
+        </aside>
+        <div>
+          <div class="results-bar">
+            <strong id="board-count">—</strong>
+            <span class="spacer"></span>
+            <label class="row small muted" style="gap:var(--s2)">Sort
+              <select id="f-sort" style="width:auto;min-height:32px">
+                <option value="score">Best match</option>
+                <option value="date">Most recent</option>
+                <option value="company">Employer A–Z</option>
+              </select>
+            </label>
+          </div>
+          <div class="cards" id="cards"></div>
+          <div style="margin-top:var(--s5);text-align:center">
+            <button class="btn hidden" id="btn-more">Show more roles</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- --------------------------------------------------- Applications -->
+    <section class="view shell" id="view-applications">
+      <div class="page-head">
+        <div>
+          <h1>Everything she has applied to</h1>
+          <p>The CV on each row is the exact file that went out, not a fresh copy.</p>
+        </div>
+      </div>
+      <div class="stats" id="app-stats" style="margin-bottom:var(--s6)"></div>
+      <div class="row" style="margin-bottom:var(--s5);gap:var(--s4);flex-wrap:wrap">
+        <div class="chips" id="app-filters"></div>
+        <span class="spacer"></span>
+        <input type="search" id="app-search" placeholder="Search role or employer" style="width:240px">
+      </div>
+      <div id="app-list"></div>
+    </section>
+
+    <!-- ----------------------------------------------------- Follow-ups -->
+    <section class="view shell" id="view-followups">
+      <div class="page-head">
+        <div>
+          <h1>Follow-ups</h1>
+          <p>Scheduled the moment an application goes out, because otherwise it never happens.
+             Nothing sends until she reads it.</p>
+        </div>
+      </div>
+      <div id="fu-due"></div>
+      <div class="split" style="margin-top:var(--s6)">
+        <section class="panel">
+          <div class="panel__head"><h3>Coming up</h3></div>
+          <div id="fu-upcoming"></div>
+        </section>
+        <aside class="panel">
+          <div class="panel__head"><h3>Already sent</h3></div>
+          <div id="fu-history"></div>
+        </aside>
+      </div>
+    </section>
+
+    <!-- ------------------------------------------------------- Keywords -->
+    <section class="view shell" id="view-keywords">
+      <div class="page-head">
+        <div>
+          <h1>What the search looks for</h1>
+          <p>Everything the app searches, scores, and rejects lives here.
+             Change a word and the next search uses it.</p>
+        </div>
+      </div>
+      <div class="grid-3" id="kw-cols"></div>
+    </section>
+
+    <!-- -------------------------------------------------------- Sources -->
+    <section class="view shell" id="view-sources">
+      <div class="page-head">
+        <div>
+          <h1>Where the roles come from</h1>
+          <p>Published job APIs and company career pages only. Nothing here scrapes a site
+             that forbids it, so it will not break or get her blocked.</p>
+        </div>
+      </div>
+      <div class="grid-2" id="src-wrap"></div>
+    </section>
+
+    <!-- ------------------------------------------------------- Settings -->
+    <section class="view shell" id="view-settings">
+      <div class="page-head">
+        <div><h1>Settings</h1><p>Everything stays on this computer.</p></div>
+      </div>
+      <div id="settings-wrap"></div>
+    </section>
+
+  </main>
+</div>
+
+<div class="scrim" id="scrim"></div>
+<section class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title">
+  <header class="drawer__head">
+    <div style="flex:1;min-width:0">
+      <h2 id="drawer-title" style="font-size:var(--t-xl)">—</h2>
+      <p class="small muted" id="drawer-sub" style="margin-top:var(--s2)"></p>
+    </div>
+    <button class="btn btn--ghost btn--sm" id="drawer-close">Close</button>
+  </header>
+  <div class="drawer__body" id="drawer-body"></div>
+  <footer class="drawer__foot" id="drawer-foot"></footer>
+</section>
+
+<div class="toast-stack" id="toasts"></div>
+
+<script src="app.js"></script>
+</body>
+</html>

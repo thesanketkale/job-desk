@@ -1,0 +1,9 @@
+node_modules/
+dist/
+dist-personal/
+*.log
+
+# Her actual CV never goes in the repository. The app copies whatever CV it
+# finds into the user's data folder on first run, and the blank
+# resources/master-resume.example.json is what ships in the build.
+resources/master-resume.json
