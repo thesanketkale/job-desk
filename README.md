@@ -25,7 +25,10 @@ per-user, so it needs no administrator rights, and updates itself from then on.
 Windows SmartScreen will warn on first run because the app is unsigned:
 **More info** → **Run anyway**, once.
 
-On first launch it asks for your CV. Everything the app produces is built from it.
+On first launch it asks for your resume — a Word file, plain text, or pasted
+text. It reads your name, contact details and location out of it, works out what
+to search the job sites for from your own job titles and skills, and fills the
+board. Everything the app produces afterwards is built from it.
 
 ## It works without an AI key
 
@@ -47,6 +50,12 @@ that fills company application forms needs a real browser engine. Bundling
 Playwright or Puppeteer would add another 150 MB and a second browser to keep
 updated. The app drives the one it already has.
 
+**The resume is read without a parser dependency.** A `.docx` is a ZIP of XML
+and `node:zlib` already has the inflate half, so reading one costs about forty
+lines rather than a library. PDF is the deliberate gap: extracting text from one
+genuinely needs a real parser, so the app says so and offers Save-as-Word or
+paste-the-text instead of half-reading it and losing sections in silence.
+
 **`node:sqlite`, not `better-sqlite3`.** Electron 43 ships Node 24, which has
 SQLite built into the runtime. That removes the only native module the app would
 otherwise need — so there is no `node-gyp`, no Visual Studio Build Tools, and no
@@ -63,10 +72,10 @@ layouts. The CV is one column, real text, no tables.
 | `src/main/` | Everything with access to the disk, the network, and the database |
 | `src/preload/` | The narrow bridge the interface is allowed to call |
 | `src/renderer/` | The interface — plain HTML, CSS and JavaScript, no framework |
-| `resources/` | The master CV and the app icon, shipped inside the build |
+| `resources/` | The app icon, and a blank example CV. The real one never ships. |
 | `tests/` | `npm test` (no Electron needed) and a screenshot harness |
 
-Her data is written to `%APPDATA%\Job Desk\` — or, in a portable build, to a
+Your data is written to `%APPDATA%\Job Desk\` — or, in a portable build, to a
 `JobDesk-Data` folder beside the `.exe`:
 
 ```
@@ -80,6 +89,12 @@ logs/                 crash log, if there ever is one
 ## How it fits together
 
 ```
+Set up, once
+  → resume-read.js     .docx (ZIP + XML, no dependency), .txt, .md, or pasted text
+  → resume-parse.js    name, email, phone, location, roles, education, skills
+  → resume-keywords.js job titles become search words, skills become boosts
+  → profile.js         saves the CV, mirrors the facts, builds the vocabulary
+
 Find new jobs
   → sources.js    one adapter per source: Adzuna, Remotive, RemoteOK, Himalayas,
                   Arbeitnow, USAJOBS, Greenhouse/Lever/Ashby/Workable boards, and
@@ -98,7 +113,7 @@ Tailor & apply
   → resume-pdf.js / resume-docx.js   the same layout in both formats
   → applier.js    rails: daily cap, per-employer cooldown, valid recipient,
                   already-sent check — all enforced in the main process
-  → mailer.js     her own mailbox, BCC'd to herself
+  → mailer.js     your own mailbox, BCC'd to yourself
   → followups.js  the chase is scheduled the moment it sends
 
 Fill in the company form
@@ -107,7 +122,7 @@ Fill in the company form
                        matching label, marks what it touched
   → DevTools protocol  DOM.setFileInputFiles genuinely attaches the tailored CV
                        to the page's upload field
-  → and then it stops. She reads it and presses Submit.
+  → and then it stops. You read it and press Submit.
 ```
 
 ## The API key is optional
@@ -126,13 +141,13 @@ overselling it:
 |---|---|---|
 | Finding, ranking, filtering | Full | Full |
 | CV documents | Master CV, PDF + Word | Rewritten per role |
-| Email | Template, one line for her to write | Written from the job description |
+| Email | Template, one line for you to write | Written from the job description |
 | Fit assessment | Keyword score only | Reads the description; flags licence, visa and time-zone blockers |
 | Follow-up wording | Template | Written for the role |
 | Sending, forms, tracking, follow-up scheduling | Full | Full |
 
 The template letter deliberately leaves a bracketed placeholder for one sentence
-she must write herself. `applier.send()` refuses while it is still present — the
+you must write yourself. `applier.send()` refuses while it is still present — the
 one thing worse than a generic application is a generic application with the
 instructions left in.
 
@@ -148,7 +163,7 @@ overwrites every frozen fact from the master CV. A prompt is a request; a guard
 is a guarantee.
 
 **Nothing scrapes.** Every source is a published API or a company's own career
-feed, so it will not break on a redesign and will not get her IP blocked.
+feed, so it will not break on a redesign and will not get your IP blocked.
 
 **Spending cannot run away.** `budget.js` holds the price table and a per-month
 ledger. `checkBeforeCall()` runs *before* every request and refuses it if the
@@ -168,7 +183,7 @@ rather than failing silently.
 ```bash
 npm install
 npm start          # or: npm run dev   (opens developer tools)
-npm test           # 88 checks, no Electron or network needed
+npm test           # 153 checks, no Electron or network needed
 ```
 
 `npm start` and `npm run dev` work on any recent Node, because Electron brings
@@ -212,7 +227,7 @@ wrong name is caught immediately rather than silently returning nothing.
 
 ## Things worth knowing before it goes wrong
 
-- **The board is empty.** She has not pressed *Find new jobs* yet, or the
+- **The board is empty.** You have not pressed *Find new jobs* yet, or the
   minimum score in Settings is too high.
 - **Nothing from India.** The Adzuna keys are missing. They are free and they are
   where most Indian listings come from.

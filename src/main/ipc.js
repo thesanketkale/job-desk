@@ -17,6 +17,8 @@ const docx = require('./resume-docx');
 const { seedIfEmpty } = require('./seed');
 const templates = require('./templates');
 const updater = require('./updater');
+const profile = require('./profile');
+const resumeRead = require('./resume-read');
 
 /** Every handler returns {ok:true, data} or {ok:false, error} — the interface
  *  never has to guess whether something threw. */
@@ -170,11 +172,21 @@ function register(ctx) {
     if (db.get('SELECT 1 AS x FROM keywords WHERE term = ? AND kind = ?', [t, kind])) {
       throw new Error('That term is already on this list.');
     }
-    return db.insert('keywords', { term: t, kind, weight: Math.max(1, Math.min(10, Number(weight) || 6)), bucket: 'custom' });
+    return db.insert('keywords', { term: t, kind, weight: Math.max(1, Math.min(10, Number(weight) || 6)),
+      bucket: 'custom', source: 'user' });
   });
-  handle('keywords:toggle', ({ id }) => db.run('UPDATE keywords SET active = 1 - active WHERE id = ?', [id]).changes);
-  handle('keywords:weight', ({ id, weight }) =>
-    db.update('keywords', { weight: Math.max(1, Math.min(10, Number(weight) || 6)) }, 'id = ?', [id]));
+  // Touching a keyword makes it the person's own, so refreshing from an updated
+  // resume leaves it alone rather than reverting their decision.
+  handle('keywords:toggle', ({ id }) => {
+    const changes = db.run('UPDATE keywords SET active = 1 - active WHERE id = ?', [id]).changes;
+    profile.claimForUser(id);
+    return changes;
+  });
+  handle('keywords:weight', ({ id, weight }) => {
+    const out = db.update('keywords', { weight: Math.max(1, Math.min(10, Number(weight) || 6)) }, 'id = ?', [id]);
+    profile.claimForUser(id);
+    return out;
+  });
   handle('keywords:delete', ({ id }) => db.run('DELETE FROM keywords WHERE id = ?', [id]).changes);
 
   /* -------------------------------------------------------- sources ---- */
@@ -246,7 +258,47 @@ function register(ctx) {
   /* -------------------------------------------------------- the CV ----- */
 
   handle('cv:get', () => masterCv.master());
-  handle('cv:save', ({ data }) => masterCv.saveMaster(data));
+  handle('cv:save', ({ data }) => {
+    // A hand edit in Settings keeps the vocabulary as it is; rebuilding it is a
+    // separate, deliberate button, so a typo fix never rewrites the board.
+    const saved = masterCv.saveMaster(data);
+    profile.syncProfile(saved);
+    return saved;
+  });
+  /* -------------------------------------------------- the resume ------- */
+
+  /** Opens the file picker. Kept in the main process — the renderer has no disk. */
+  handle('resume:choose', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(getMainWindow(), {
+      title: 'Choose your resume',
+      properties: ['openFile'],
+      filters: [
+        { name: 'Resume', extensions: ['docx', 'txt', 'md', 'json'] },
+        { name: 'Word document', extensions: ['docx'] },
+        { name: 'Plain text', extensions: ['txt', 'md'] },
+        { name: 'All files', extensions: ['*'] },
+      ],
+    });
+    if (canceled || !filePaths?.length) return null;
+    return profile.preview({ filePath: filePaths[0] });
+  });
+
+  /** Reads without saving, so the person can check it before it becomes theirs. */
+  handle('resume:preview', ({ filePath, text }) => profile.preview({ filePath, text }));
+
+  /** Commits a reviewed resume: CV, profile facts, mailbox and vocabulary. */
+  handle('resume:apply', ({ cv, rebuildKeywords = true }) => {
+    const result = profile.apply({ cv, rebuildKeywords });
+    settings.set('onboarded', true);
+    return result;
+  });
+
+  handle('resume:formats', () => ({ supported: resumeRead.SUPPORTED }));
+  handle('profile:get', () => profile.current());
+
+  /** The Settings button: build the vocabulary again from the CV as it stands. */
+  handle('keywords:refreshFromResume', () => profile.rebuild());
+
   handle('cv:preview', async ({ which = 'pdf' }) => {
     const cv = masterCv.master();
     const out = path.join(db.paths.resumes, `master-preview.${which === 'docx' ? 'docx' : 'pdf'}`);
@@ -365,6 +417,9 @@ function register(ctx) {
       lastRefresh: settings.get('last_refresh_at', null),
       activity: db.all('SELECT * FROM activity ORDER BY at DESC LIMIT 12'),
       cvReady: !masterCv.isPlaceholder(),
+      profileName: settings.get('profile_name', '') || (() => {
+        try { return masterCv.master().name; } catch { return ''; }
+      })(),
       canSendEmail: settings.hasSecret('smtp_password') && !!settings.get('smtp_user', ''),
       aiEnabled: claude.available(),
       onboarded: !!settings.get('onboarded', false),

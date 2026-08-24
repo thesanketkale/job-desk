@@ -34,38 +34,82 @@
     <section class="view shell" id="view-welcome">
       <div class="page-head" style="max-width:64ch">
         <div>
-          <h1>Let's get your CV in</h1>
-          <p>Job Desk is ready to go. It needs one thing first: your CV. Everything the app
-             produces — the documents it generates, the letters it writes, the details it types into
-             company forms — is built from it.</p>
+          <h1>Let's start with your resume</h1>
+          <p>Job Desk needs one thing to get going: your resume. Everything the app does is built
+             from it — the documents it generates, the letters it writes, the details it types into
+             company forms, and the words it searches the job sites for.</p>
         </div>
       </div>
-      <div class="split">
+
+      <!-- Step 1: bring the resume in -->
+      <div class="split" id="w-step-import">
         <section class="panel">
-          <div class="panel__head"><h3>Paste your CV</h3></div>
-          <p class="small muted">Replace the example values below with your own, keeping the quotes and
-            commas exactly where they are, then press Save. You can change any of it later from
-            Settings, and there is a preview button there to check how it looks.</p>
-          <label class="field" style="margin-top:var(--s4)"><span>CV contents</span>
-            <textarea id="w-cv" class="mono" spellcheck="false" style="min-height:420px"></textarea></label>
-          <div class="row" style="margin-top:var(--s3)">
-            <button class="btn btn--primary" id="w-save">Save my CV</button>
-            <span class="small muted" id="w-status"></span>
+          <div class="panel__head"><h3>Bring your resume in</h3></div>
+          <p class="small muted">Choose the file and Job Desk reads it. Word documents
+            (<code>.docx</code>), plain text and Markdown all work.</p>
+          <div class="row" style="margin-top:var(--s4)">
+            <button class="btn btn--primary" id="w-choose">Choose my resume…</button>
+            <span class="small muted" id="w-file"></span>
           </div>
+
+          <p class="inline-note" style="margin-top:var(--s4)">Have a PDF? Open it, choose
+            <b>File → Save as</b> and pick Word — or just copy the text and paste it below.</p>
+
+          <details style="margin-top:var(--s4)">
+            <summary class="small">Paste the text instead</summary>
+            <p class="small muted" style="margin-top:var(--s3)">Open your resume, select everything,
+              copy it, and paste it here. Any format works this way, including PDF.</p>
+            <label class="field" style="margin-top:var(--s3)"><span>Resume text</span>
+              <textarea id="w-text" spellcheck="false" style="min-height:220px"
+                placeholder="Paste the whole resume here…"></textarea></label>
+            <button class="btn" id="w-read-text" style="margin-top:var(--s3)">Read this</button>
+          </details>
         </section>
+
         <aside class="panel">
           <div class="panel__head"><h3>What happens next</h3></div>
           <div class="timeline">
             <div class="timeline__row"><span class="timeline__dot"></span>
-              <span>Your mailbox, so applications send from your own address</span><span></span></div>
+              <span>Your details are read out and shown to you to check</span><span></span></div>
             <div class="timeline__row"><span class="timeline__dot"></span>
-              <span>Press <b>Find new jobs</b> and the board fills up</span><span></span></div>
+              <span>Search words are worked out from your own experience</span><span></span></div>
+            <div class="timeline__row"><span class="timeline__dot"></span>
+              <span>The board fills with roles that match them</span><span></span></div>
             <div class="timeline__row"><span class="timeline__dot"></span>
               <span>Apply — CV, letter and email are generated for you</span><span></span></div>
           </div>
-          <p class="inline-note" style="margin-top:var(--s4)">Nothing leaves this computer except job
-            searches and the emails you choose to send.</p>
+          <p class="inline-note" style="margin-top:var(--s4)">Your resume is read on this computer.
+            Nothing leaves it except job searches and the emails you choose to send.</p>
         </aside>
+      </div>
+
+      <!-- Step 2: check what was read -->
+      <div id="w-step-review" class="hidden">
+        <div class="split">
+          <section class="panel">
+            <div class="panel__head">
+              <h3>Does this look right?</h3>
+              <span class="spacer"></span>
+              <span class="small muted" id="w-source"></span>
+            </div>
+            <p class="small muted">Read from your resume. Anything wrong can be corrected here, and
+              all of it can be changed later in Settings.</p>
+            <div id="w-fields" style="margin-top:var(--s4)"></div>
+          </section>
+
+          <aside class="panel">
+            <div class="panel__head"><h3>What it will search for</h3></div>
+            <p class="small muted">Worked out from your job titles and skills. You get full control
+              of this list in <b>Keywords</b> afterwards.</p>
+            <div id="w-keywords" style="margin-top:var(--s4)"></div>
+          </aside>
+        </div>
+
+        <div class="row" style="margin-top:var(--s4)">
+          <button class="btn btn--primary" id="w-save">This is right — set me up</button>
+          <button class="btn" id="w-back">Choose a different file</button>
+          <span class="small muted" id="w-status"></span>
+        </div>
       </div>
     </section>
 
@@ -84,7 +128,7 @@
       <div class="split">
         <section>
           <div class="panel">
-            <div class="panel__head"><h3>Waiting on her</h3></div>
+            <div class="panel__head"><h3>Waiting on you</h3></div>
             <div id="today-actions"></div>
           </div>
         </section>
@@ -99,7 +143,7 @@
     <section class="view shell" id="view-board">
       <div class="page-head">
         <div>
-          <h1>Roles worth her time</h1>
+          <h1>Roles worth your time</h1>
           <p id="board-sub">Ranked against the words on the Keywords page.</p>
         </div>
         <span class="spacer"></span>
@@ -142,7 +186,7 @@
           </div>
           <div class="rail__group">
             <label class="row small" style="gap:var(--s2)">
-              <input type="checkbox" id="f-unapplied"> Hide ones she has applied to
+              <input type="checkbox" id="f-unapplied"> Hide ones you have applied to
             </label>
             <button class="btn btn--ghost btn--sm" type="button" id="f-reset">Clear all filters</button>
           </div>
@@ -171,7 +215,7 @@
     <section class="view shell" id="view-applications">
       <div class="page-head">
         <div>
-          <h1>Everything she has applied to</h1>
+          <h1>Everything you have applied to</h1>
           <p>The CV on each row is the exact file that went out, not a fresh copy.</p>
         </div>
       </div>
@@ -190,7 +234,7 @@
         <div>
           <h1>Follow-ups</h1>
           <p>Scheduled the moment an application goes out, because otherwise it never happens.
-             Nothing sends until she reads it.</p>
+             Nothing sends until you read it.</p>
         </div>
       </div>
       <div id="fu-due"></div>
@@ -224,7 +268,7 @@
         <div>
           <h1>Where the roles come from</h1>
           <p>Published job APIs and company career pages only. Nothing here scrapes a site
-             that forbids it, so it will not break or get her blocked.</p>
+             that forbids it, so it will not break or get you blocked.</p>
         </div>
       </div>
       <div class="grid-2" id="src-wrap"></div>

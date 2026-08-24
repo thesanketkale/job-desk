@@ -204,6 +204,6 @@ process.on('uncaughtException', (err) => {
   if (app.isReady()) {
     dialog.showErrorBox('Something went wrong',
       `${err.message || err}\n\nThe details were written to the logs folder, which you can open `
-      + 'from the File menu. Nothing she has saved is affected.');
+      + 'from the File menu. Nothing you have saved is affected.');
   }
 });

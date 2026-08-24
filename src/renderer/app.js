@@ -174,12 +174,14 @@ async function refreshChrome() {
     }
     $('#nav').classList.toggle('hidden', !d.cvReady);
     $('#capacity').classList.toggle('hidden', !d.cvReady);
-    if (cvName === null) {
-      cvName = '';
-      call(window.api.cv.get, {}).then((cv) => {
-        cvName = cv?.name || '';
-        $('#wordmark-name').textContent = cvName;
-      }).catch(() => {});
+    // Read from the stored profile every time rather than cached once: importing
+    // a different resume changes the name, and the header has to follow it.
+    // Blank until a real resume is in: the placeholder CV's "Your Name" in the
+    // header would read as though the app had already been set up.
+    const shownName = d.cvReady ? (d.profileName || '') : '';
+    if (shownName !== cvName) {
+      cvName = shownName;
+      $('#wordmark-name').textContent = cvName;
     }
     const dots = Array.from({ length: Math.max(1, d.dailyCap) },
       (_, i) => `<span class="capacity__dot${i < d.remainingToday ? ' capacity__dot--on' : ''}"></span>`).join('');
@@ -371,7 +373,7 @@ async function startApply(jobId) {
     'Reading the job description, rewriting the CV against it, drafting the email.');
   $('#drawer-body').innerHTML = `<div class="panel">
       <p class="row" style="margin:0"><span class="spin"></span>
-      <span>This takes about twenty seconds. Nothing is sent until she says so.</span></p>
+      <span>This takes about twenty seconds. Nothing is sent until you say so.</span></p>
     </div>`;
   try {
     const a = await call(window.api.apply.prepare, { jobId });
@@ -427,11 +429,11 @@ function renderApplication(a) {
     </div>
 
     <div class="panel">
-      <div class="panel__head"><h3>${template ? 'Her CV' : 'The tailored CV'}</h3>
+      <div class="panel__head"><h3>${template ? 'Your CV' : 'The tailored CV'}</h3>
         ${template ? '<span class="pill pill--draft">master copy</span>'
     : '<span class="pill pill--sent">rewritten for this role</span>'}</div>
       <p class="small muted">${template
-    ? 'Her full CV, exactly as it is on the Settings page. With a Claude key it would be rewritten for this particular job — reordered, reworded, and trimmed to what this employer asked for.'
+    ? 'Your full CV, exactly as it is on the Settings page. With a Claude key it would be rewritten for this particular job — reordered, reworded, and trimmed to what this employer asked for.'
     : 'Rewritten for this role. Dates, employers, degrees and the session count are locked to the master CV and cannot be changed by the rewrite.'}</p>
       ${fileRow}
       ${template ? `<p class="inline-note" style="margin-top:var(--s3)">
@@ -439,7 +441,7 @@ function renderApplication(a) {
     </div>
 
     <div class="panel">
-      <div class="panel__head"><h3>${sent ? 'The email that went out' : 'The email she will send'}</h3></div>
+      <div class="panel__head"><h3>${sent ? 'The email that went out' : 'The email you will send'}</h3></div>
       <label class="field" style="margin-bottom:var(--s4)"><span>To</span>
         <input type="email" id="a-to" value="${esc(a.to_email)}" ${sent ? 'readonly' : ''}
           placeholder="No address was published — add one, or use the company form"></label>
@@ -449,7 +451,7 @@ function renderApplication(a) {
         <textarea id="a-body" rows="13" ${sent ? 'readonly' : ''}>${esc(a.body_text)}</textarea></label>
       ${template && !sent ? `<p class="flash flash--warn" style="margin:var(--s3) 0 0">
         Replace the line in square brackets with one sentence about why this role — then it is ready.
-        That sentence is the part a template cannot write for her.</p>` : ''}
+        That sentence is the part a template cannot write for you.</p>` : ''}
     </div>
 
     <details class="panel">
@@ -577,26 +579,176 @@ function confirmSend(to, company) {
 
 /* ============================================================== WELCOME */
 
-VIEWS.welcome = async function welcome() {
-  const cv = await call(window.api.cv.get, {});
-  if (!$('#w-cv').value) $('#w-cv').value = JSON.stringify(cv, null, 2);
+/* ------------------------------------------------------------- welcome */
 
-  $('#w-save').onclick = async () => {
-    let data;
-    try { data = JSON.parse($('#w-cv').value); }
-    catch (err) {
-      oops(new Error(`The CV has a formatting error: ${err.message}`));
-      return;
-    }
-    if (!data.name || data.name === 'Your Name') {
-      toast('Put a real name in first — that is what goes on every document.', 'warn');
-      return;
-    }
+/** What was read from the resume, held here until it is confirmed. */
+let pendingImport = null;
+
+const CONFIDENCE_NOTE = {
+  missing: 'not found — please add it',
+  low: 'only partly read — worth checking',
+};
+
+/** The facts worth showing back: the ones the app leans on constantly. */
+const REVIEW_FIELDS = [
+  ['name', 'Name', (cv) => cv.name, 'name'],
+  ['headline', 'Job title', (cv) => cv.headline, null],
+  ['email', 'Email', (cv) => cv.contact?.email, 'email'],
+  ['phone', 'Phone', (cv) => cv.contact?.phone, 'phone'],
+  ['location', 'Where you are', (cv) => cv.contact?.location, 'location'],
+  ['linkedin', 'LinkedIn', (cv) => cv.contact?.linkedin, null],
+  ['website', 'Website', (cv) => cv.contact?.website, null],
+];
+
+function renderReview(result) {
+  pendingImport = result;
+  const { cv, confidence, keywords } = result;
+
+  $('#w-source').textContent = result.aiUsed
+    ? `Read from ${result.file || 'the text'} with Claude`
+    : `Read from ${result.file || 'the text you pasted'}`;
+
+  $('#w-fields').innerHTML = REVIEW_FIELDS.map(([key, label, pick, conf]) => {
+    const note = conf ? CONFIDENCE_NOTE[confidence?.[conf]] : '';
+    return `<label class="field"><span>${esc(label)}${note
+      ? ` <em class="small muted">— ${esc(note)}</em>` : ''}</span>
+      <input type="text" data-cv="${key}" value="${esc(pick(cv) || '')}"></label>`;
+  }).join('');
+
+  const counts = [
+    [(cv.experience || []).length, 'role'],
+    [(cv.education || []).length, 'qualification'],
+    [Object.values(cv.competencies || {}).flat().length, 'skill'],
+  ].map(([n, word]) => `${n} ${word}${n === 1 ? '' : 's'}`).join(', ');
+
+  $('#w-fields').insertAdjacentHTML('beforeend',
+    `<p class="inline-note" style="margin-top:var(--s4)">Also read: ${esc(counts)}.
+     You can go through all of it in Settings once you are in.</p>`);
+
+  const chips = (list, kind) => (list.length
+    ? list.map((k) => `<span class="chip" title="weight ${k.weight}">${esc(k.term)}</span>`).join('')
+    : `<span class="small muted">No ${kind} found — you can add your own in Keywords.</span>`);
+
+  $('#w-keywords').innerHTML = `
+    <p class="small"><b>Searched for</b></p>
+    <div class="chips">${chips(keywords.query, 'job titles')}</div>
+    <p class="small" style="margin-top:var(--s4)"><b>Raises a role's score</b></p>
+    <div class="chips">${chips(keywords.boost, 'skills')}</div>`;
+
+  $('#w-step-import').classList.add('hidden');
+  $('#w-step-review').classList.remove('hidden');
+}
+
+/** The edits made on the review screen belong to the CV, not just the boxes. */
+function collectEdits() {
+  const cv = JSON.parse(JSON.stringify(pendingImport.cv));
+  cv.contact ||= {};
+  for (const input of $$('#w-fields [data-cv]')) {
+    const v = input.value.trim();
+    if (input.dataset.cv === 'name') cv.name = v;
+    else if (input.dataset.cv === 'headline') cv.headline = v;
+    else cv.contact[input.dataset.cv] = v;
+  }
+  return cv;
+}
+
+/**
+ * The Settings version of the review step. Replacing a resume is a bigger event
+ * than the first import — there is already a CV, already a vocabulary, and
+ * already applications sent against them — so it asks about the keywords
+ * separately rather than assuming.
+ */
+function renderResumeReplacement(read) {
+  const box = $('#s-resume-review');
+  const { cv } = read;
+  const rows = REVIEW_FIELDS
+    .map(([, label, pick]) => [label, pick(cv)])
+    .filter(([, v]) => v)
+    .map(([label, v]) => `<div class="timeline__row"><span class="timeline__dot"></span>
+      <span>${esc(label)}</span><span class="small">${esc(v)}</span></div>`).join('');
+
+  box.innerHTML = `
+    <div class="panel__head"><h3>Read from ${esc(read.file || 'the file')}</h3></div>
+    <div class="timeline">${rows}</div>
+    <p class="inline-note" style="margin-top:var(--s3)">
+      ${(cv.experience || []).length} roles, ${(cv.education || []).length} qualifications.
+      Saving replaces your CV; the version you have now is kept as a backup.</p>
+    <label class="row" style="margin-top:var(--s4);gap:var(--s2);align-items:center">
+      <input type="checkbox" id="s-resume-rebuild" checked>
+      <span class="small">Work out my search words again from this resume</span></label>
+    <div class="row" style="margin-top:var(--s3)">
+      <button class="btn btn--primary btn--sm" id="s-resume-apply">Use this resume</button>
+      <button class="btn btn--sm" id="s-resume-cancel">Cancel</button>
+    </div>`;
+  box.classList.remove('hidden');
+
+  $('#s-resume-cancel').onclick = () => { box.classList.add('hidden'); box.innerHTML = ''; };
+  $('#s-resume-apply').onclick = async (e) => {
+    e.currentTarget.disabled = true;
+    e.currentTarget.innerHTML = '<span class="spin"></span> Saving…';
     try {
-      await call(window.api.cv.save, { data });
-      toast('Saved. The app is ready.');
-      location.hash = '#/today';
+      const out = await call(window.api.resume.apply, {
+        cv, rebuildKeywords: $('#s-resume-rebuild').checked,
+      });
+      box.classList.add('hidden');
+      box.innerHTML = '';
+      toast(out.keywords
+        ? `Resume replaced. ${out.keywords.added} search words rebuilt, ${out.keywords.keptYours} of yours kept.`
+        : 'Resume replaced. Your search words were left as they are.');
+      go('settings');                      // redraw with the new details in place
+    } catch (err) { oops(err); e.currentTarget.disabled = false; }
+  };
+}
+
+VIEWS.welcome = async function welcome() {
+  const busy = (btn, label) => {
+    btn.disabled = true;
+    btn.dataset.was = btn.textContent;
+    btn.innerHTML = `<span class="spin"></span> ${label}`;
+  };
+  const done = (btn) => { btn.disabled = false; btn.textContent = btn.dataset.was || btn.textContent; };
+
+  // `e.currentTarget` is null once the handler has awaited — the event has
+  // finished dispatching by then — so the button is captured up front.
+  $('#w-choose').onclick = async (e) => {
+    const btn = e.currentTarget;
+    busy(btn, 'Reading…');
+    try {
+      const result = await call(window.api.resume.choose, {});
+      if (result) renderReview(result);          // null means it was cancelled
     } catch (err) { oops(err); }
+    done(btn);
+  };
+
+  $('#w-read-text').onclick = async (e) => {
+    const btn = e.currentTarget;
+    const text = $('#w-text').value.trim();
+    if (!text) { toast('Paste the text of your resume first.', 'warn'); return; }
+    busy(btn, 'Reading…');
+    try { renderReview(await call(window.api.resume.preview, { text })); }
+    catch (err) { oops(err); }
+    done(btn);
+  };
+
+  $('#w-back').onclick = () => {
+    pendingImport = null;
+    $('#w-step-review').classList.add('hidden');
+    $('#w-step-import').classList.remove('hidden');
+  };
+
+  $('#w-save').onclick = async (e) => {
+    const btn = e.currentTarget;
+    if (!pendingImport) return;
+    const cv = collectEdits();
+    if (!cv.name) { toast('A name is needed — it goes on every document.', 'warn'); return; }
+    busy(btn, 'Setting up…');
+    try {
+      const out = await call(window.api.resume.apply, { cv, rebuildKeywords: true });
+      const n = out.keywords?.added || 0;
+      toast(`Set up for ${out.cv.name} — ${n} search word${n === 1 ? '' : 's'} from your resume.`);
+      pendingImport = null;
+      location.hash = '#/today';
+    } catch (err) { oops(err); done(btn); }
   };
 };
 
@@ -610,15 +762,15 @@ VIEWS.today = async function today() {
   $('#setup-banner').innerHTML = !d.canSendEmail ? `
     <div class="panel" style="margin-bottom:var(--s6);border-color:var(--accent-line);background:var(--accent-tint)">
       <div class="panel__head"><h3>One thing to set up</h3></div>
-      <p class="small">Finding jobs, ranking them, generating her CV and filling in company forms all work
-        already. To send applications by email from her own address, add the mailbox password — two minutes, once.</p>
+      <p class="small">Finding jobs, ranking them, generating your CV and filling in company forms all work
+        already. To send applications by email from your own address, add the mailbox password — two minutes, once.</p>
       <button class="btn btn--primary" style="margin-top:var(--s3)" data-goto="settings">Add the mailbox</button>
     </div>`
     : (!d.aiEnabled && !localStorage.getItem('jd-ai-dismissed') ? `
     <div class="panel" style="margin-bottom:var(--s6)">
       <div class="panel__head"><h3>Everything here is working</h3>
         <button class="btn btn--ghost btn--sm" id="dismiss-ai">Hide this</button></div>
-      <p class="small muted">She is applying with her full CV and a template letter, which is a perfectly
+      <p class="small muted">You are applying with your full CV and a template letter, which is a perfectly
         respectable way to apply. Adding a Claude key would rewrite the CV for each role and write each
         email from the job description — about ₹5 an application, and entirely optional.</p>
       <button class="btn btn--sm" style="margin-top:var(--s3)" data-goto="settings">See what it adds</button>
@@ -670,7 +822,7 @@ VIEWS.today = async function today() {
          ${drafts.length ? '<button class="btn btn--sm" data-goto="applications">Go to drafts</button>' : ''}
        </div>`
     : `<p class="muted small" style="margin:0">Nothing waiting. ${
-      d.jobsAvailable ? 'The board has roles ready when she is.' : 'Press "Find new jobs" to fill the board.'}</p>
+      d.jobsAvailable ? 'The board has roles ready when you are.' : 'Press "Find new jobs" to fill the board.'}</p>
        <button class="btn btn--sm" style="margin-top:var(--s3)" data-goto="board">Open the board</button>`;
 
   $('#today-activity').innerHTML = d.activity.length
@@ -708,7 +860,7 @@ VIEWS.applications = async function applications() {
       <thead><tr><th>Role</th><th>Where it went</th><th>Match</th><th>Status</th><th>When</th><th></th></tr></thead>
       <tbody>${d.rows.map(appRow).join('')}</tbody></table>`
     : `<div class="empty"><h3>Nothing here yet</h3>
-        <p>When she applies from the board, the tailored CV, the email that went out, and where it stands all land here.</p>
+        <p>When you apply from the board, the tailored CV, the email that went out, and where it stands all land here.</p>
         <p style="margin-top:var(--s4)"><button class="btn btn--primary" data-goto="board">Open the board</button></p></div>`;
 };
 
@@ -883,7 +1035,7 @@ function wireFollowups() {
 const KW_COPY = {
   query: ['Search words',
     'These are what the app asks the job sites for. They decide what turns up at all. '
-    + 'Keep the list tight — vague words flood the board with things she would never apply to.'],
+    + 'Keep the list tight — vague words flood the board with things you would never apply to.'],
   boost: ['Things that raise the score',
     'Never searched for. When one of these turns up in a role, the match score goes up — '
     + 'three times as much if it is in the job title. This is how the ranking gets sharper without adding noise.'],
@@ -935,7 +1087,7 @@ function wireKeywords() {
       await call(window.api.keywords.add, {
         kind, term: form.term.value.trim(), weight: Number(form.weight.value),
       });
-      toast('Added. It will be used the next time she looks for jobs.');
+      toast('Added. It will be used the next time it looks for jobs.');
       go('keywords');
     } catch (err) { oops(err); }
   });
@@ -1014,7 +1166,7 @@ VIEWS.sources = async function sourcesView() {
       </div>
       ${d.suggested?.length ? `<div class="panel" style="margin-top:var(--s5)">
         <div class="panel__head"><h3>Worth trying</h3></div>
-        <p class="small muted">Employers who hire into her field. Company names change when a company
+        <p class="small muted">Employers who hire into your field. Company names change when a company
           switches systems, so each one is checked before it is added.</p>
         <div class="chips" style="margin-top:var(--s4)">
           ${d.suggested.map((b) => `<button class="chip" data-suggest='${esc(JSON.stringify(b))}'>${esc(b[1])}</button>`).join('')}
@@ -1100,11 +1252,11 @@ VIEWS.settings = async function settingsView() {
         <li><b>The CV is rewritten for each role</b> — reordered, reworded to the employer's own language,
           and trimmed to what they asked for, instead of sending the same master CV every time.</li>
         <li><b>The email is written from the job description</b> — specific to that role, instead of a
-          template with one sentence for her to fill in.</li>
-        <li><b>An honest read on whether she qualifies</b> — including blockers like a licence she does
+          template with one sentence for you to fill in.</li>
+        <li><b>An honest read on whether you qualify</b> — including blockers like a licence you do
           not hold, which keyword matching cannot see.</li>
       </ul>
-      <p class="small muted">Follow-up notes get written for her too. Billed per use against a prepaid
+      <p class="small muted">Follow-up notes get written for you too. Billed per use against a prepaid
         balance — separate from any Claude subscription, which this app cannot touch.
         <a href="#" data-external="https://console.anthropic.com/settings/keys">Get a key</a>.</p>
 
@@ -1160,11 +1312,11 @@ VIEWS.settings = async function settingsView() {
     </section>
 
     <section class="panel">
-      <div class="panel__head"><h3>Her mailbox — for sending</h3>
+      <div class="panel__head"><h3>Your mailbox — for sending</h3>
         <span class="pill pill--${s.has_smtp_password ? 'sent' : 'draft'}">${s.has_smtp_password ? 'set up' : 'not set'}</span>
       </div>
-      <p class="small muted">Applications go out from her own address, so replies come back to her
-        normal inbox. These are the same details her mail program uses.</p>
+      <p class="small muted">Applications go out from your own address, so replies come back to your
+        normal inbox. These are the same details your mail program uses.</p>
       <div class="row" style="margin-top:var(--s4);gap:var(--s3);align-items:flex-start">
         <label class="field" style="flex:2"><span>Mail server</span>
           <input type="text" id="s-host" value="${esc(s.smtp_host)}"></label>
@@ -1189,7 +1341,7 @@ VIEWS.settings = async function settingsView() {
       </div>
       <label class="row small" style="margin-top:var(--s4);gap:var(--s2)">
         <input type="checkbox" id="s-bcc" ${s.bcc_self ? 'checked' : ''}>
-        Keep a copy of every application in her own inbox</label>
+        Keep a copy of every application in your own inbox</label>
       ${s.encryption_available ? '' : `<p class="flash flash--warn" style="margin-top:var(--s4)">
         Windows would not give the app its secure store, so these passwords are saved in plain text in
         the data folder. Everything still works — just keep that folder to herself.</p>`}
@@ -1206,7 +1358,7 @@ VIEWS.settings = async function settingsView() {
         <label class="field"><span>On-site</span><input type="number" id="s-w-onsite" value="${s.work_mode_preference.onsite}"></label>
       </div>
       <span class="inline-note">How much each working pattern adds to a role's score.</span>
-      <label class="field" style="margin-top:var(--s4)"><span>Countries she would take a job in</span>
+      <label class="field" style="margin-top:var(--s4)"><span>Countries you would take a job in</span>
         <input type="text" id="s-countries" value="${esc((s.preferred_countries || []).join(', '))}"></label>
       <label class="field" style="margin-top:var(--s4)"><span>Look for new jobs every</span>
         <select id="s-refresh">
@@ -1236,7 +1388,7 @@ VIEWS.settings = async function settingsView() {
     </section>
 
     <section class="panel">
-      <div class="panel__head"><h3>Her details for application forms</h3></div>
+      <div class="panel__head"><h3>Your details for application forms</h3></div>
       <p class="small muted">What the app types into company forms. Name, email, phone and links come
         from the CV.</p>
       <div class="row" style="margin-top:var(--s4);gap:var(--s3)">
@@ -1273,7 +1425,7 @@ VIEWS.settings = async function settingsView() {
       </div>
       <p class="small muted">${s.aiEnabled
     ? 'Used only if the Claude key stops working, so applications never come to a halt.'
-    : 'These are what she is sending now. Anything in double braces is filled in automatically — {{title}}, {{company}}, {{credentials}}, {{signature}}, {{days}}.'}</p>
+    : 'These are what you are sending now. Anything in double braces is filled in automatically — {{title}}, {{company}}, {{credentials}}, {{signature}}, {{days}}.'}</p>
       <div class="grid-3" style="margin-top:var(--s4)">
         <label class="field"><span>Application email</span>
           <textarea id="s-tpl-email" class="mono" spellcheck="false" style="min-height:260px">${esc(s.templates?.template_email || '')}</textarea></label>
@@ -1289,7 +1441,24 @@ VIEWS.settings = async function settingsView() {
     </section>
 
     <section class="panel" style="grid-column:1/-1">
-      <div class="panel__head"><h3>Her CV</h3>
+      <div class="panel__head"><h3>Your resume</h3>
+        <span class="spacer"></span>
+        <span class="small muted">${s.resume_imported_at
+    ? `Last read ${esc(ago(s.resume_imported_at))}` : 'Entered by hand'}</span>
+      </div>
+      <p class="small muted">Replacing it reads a new file and updates your details. Your search
+        words are left alone until you ask for them to be worked out again — so a small correction
+        never quietly rewrites the board.</p>
+      <div class="row" style="margin-top:var(--s4);gap:var(--s3);flex-wrap:wrap">
+        <button class="btn btn--primary btn--sm" id="s-resume-new">Replace my resume…</button>
+        <button class="btn btn--sm" id="s-resume-keywords">Work out my search words again</button>
+        <span class="small muted" id="s-resume-status"></span>
+      </div>
+      <div id="s-resume-review" class="hidden" style="margin-top:var(--s4)"></div>
+    </section>
+
+    <section class="panel" style="grid-column:1/-1">
+      <div class="panel__head"><h3>Your CV, in detail</h3>
         <button class="btn btn--sm" id="s-cv-preview">See the PDF</button>
         <button class="btn btn--sm" id="s-cv-word">See the Word version</button>
       </div>
@@ -1307,7 +1476,7 @@ VIEWS.settings = async function settingsView() {
     <section class="panel" style="grid-column:1/-1">
       <div class="panel__head"><h3>Where everything is kept</h3></div>
       <p class="small">Nothing leaves this computer except the job searches, the CV tailoring, and the
-        emails she chooses to send.</p>
+        emails you choose to send.</p>
       <p class="small mono selectable" style="color:var(--muted);word-break:break-all">${esc(s.dataDir)}</p>
       <div class="row" style="margin-top:var(--s3);flex-wrap:wrap">
         <button class="btn btn--sm" id="s-folder">Open that folder</button>
@@ -1465,16 +1634,46 @@ VIEWS.settings = async function settingsView() {
   });
   $('#s-cv-preview').addEventListener('click', () => call(window.api.cv.preview, { which: 'pdf' }).catch(oops));
   $('#s-cv-word').addEventListener('click', () => call(window.api.cv.preview, { which: 'docx' }).catch(oops));
+
+  /* Replacing the resume shows what was read before anything is written, for the
+     same reason onboarding does: a silent wrong parse is worse than a visible one. */
+  $('#s-resume-new').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Reading…';
+    try {
+      const read = await call(window.api.resume.choose, {});
+      if (read) renderResumeReplacement(read);
+    } catch (err) { oops(err); }
+    btn.disabled = false;
+    btn.textContent = 'Replace my resume…';
+  });
+
+  $('#s-resume-keywords').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Working them out…';
+    try {
+      const r = await call(window.api.keywords.refreshFromResume, {});
+      $('#s-resume-status').textContent =
+        `${r.added} search word${r.added === 1 ? '' : 's'} from your resume`
+        + `, ${r.keptYours} of your own kept.`;
+      toast('Search words rebuilt. Press Find new jobs to search on them.');
+    } catch (err) { oops(err); }
+    btn.disabled = false;
+    btn.textContent = 'Work out my search words again';
+  });
   $('#s-folder').addEventListener('click', () => call(window.api.shell.openDataFolder, {}).catch(oops));
   $('#s-update').addEventListener('click', async (e) => {
-    e.currentTarget.disabled = true;
-    e.currentTarget.innerHTML = '<span class="spin"></span> Checking…';
+    const btn = e.currentTarget;          // null after the first await
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Checking…';
     try {
       const r = await call(window.api.app.checkUpdates, {});
       $('#s-update-note').textContent = r.message;
     } catch (err) { oops(err); }
-    e.currentTarget.disabled = false;
-    e.currentTarget.textContent = 'Check for updates';
+    btn.disabled = false;
+    btn.textContent = 'Check for updates';
   });
 
   $('#s-backup').addEventListener('click', async () => {

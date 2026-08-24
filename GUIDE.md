@@ -1,18 +1,38 @@
 # Job Desk — how to use it
 
-## Start here: it works straight away
+## Start here: your resume
 
-Open the app. You can find jobs, rank them, generate your CV, apply, fill in
-company forms and track everything **without paying for anything**. There is one
-setup step, and it takes two minutes.
+The first thing the app asks for is your resume. Press **Choose my resume…** and
+pick the file. Word documents (`.docx`), plain text and Markdown are all read
+directly.
 
-**Add your mailbox** — so applications go out from your own address and replies
-come back to the inbox you already check.
+If yours is a PDF, either open it and use **File → Save as** to make a Word copy,
+or open it, select everything, copy, and use **Paste the text instead** on the
+same screen. Pasting works for any format at all.
 
-Settings → *Her mailbox*. The server details for srishtisharma.com are already
-filled in. Type the mailbox password, press **Save**, then **Check it works**,
-then **Send myself a test**. If the test arrives with your CV attached, you are
-finished setting up.
+From that one file the app works out:
+
+- **Your details** — name, email, phone, where you are. These go into every
+  document it makes and every company form it fills in, so you never type them
+  again.
+- **What to search for** — your job titles become the words it asks the job sites
+  for, and your skills become the words that push a role up the list.
+
+It then shows you everything it read, so you can correct anything it got wrong
+before it saves. Nothing is stored until you press **This is right**.
+
+You can replace the resume, or work the search words out again, at any time from
+Settings.
+
+## Then: your mailbox
+
+So applications go out from your own address and replies come back to the inbox
+you already check.
+
+Settings → *Your mailbox*. The server details are filled in from your email
+address already. Type the mailbox password, press **Save**, then **Check it
+works**, then **Send myself a test**. If the test arrives with your CV attached,
+you are finished setting up.
 
 **Worth doing too, and also free:** Settings → *Job sites that need a key*.
 Adzuna is free and is where most of the Indian jobs come from. Sign up at
@@ -96,7 +116,7 @@ Then either:
 
 - **Send it now** — goes from your address with the CV attached
 - **Fill in the company form** — opens their page inside the app. Press *Fill in
-  her details*, then *Attach the CV*. Everything it filled is outlined in green.
+  your details*, then *Attach the CV*. Everything it filled is outlined in green.
   **Read it, then press their Submit button yourself** — the app never submits
   for you. Afterwards press *I have submitted it* so it gets logged.
 
@@ -114,18 +134,28 @@ or skip it.
 
 ## Making the results better
 
-**Keywords** shapes the whole thing.
+**Keywords** shapes the whole thing. The list starts from your resume, and from
+then on it is yours.
 
-- **Search words** are what the app asks the job sites for. Keep the list tight;
-  vague words fill the board with things you would never apply to.
+- **Search words** are what the app asks the job sites for. These start as your
+  own job titles, with the seniority stripped off so a mid-level advert still
+  matches. Keep the list tight; vague words fill the board with things you would
+  never apply to.
 - **Things that raise the score** are not searched for, but push a role up the
-  list when they appear in it. Add anything you specialise in.
+  list when they appear in it. These start as your skills and the things your
+  resume keeps coming back to. Add anything you specialise in.
 - **Never show me these** throws a role away if the words appear in its title.
-  Use it for jobs that look similar but need a different profession or a licence
-  you do not have.
+  Nothing is put here for you — it needs judgement the app does not have. Use it
+  for jobs that look similar but need a different profession or a licence you do
+  not have.
 
 The number beside each word is how many roles it has matched, so you can see
 which ones are earning their place.
+
+**Changing your career direction?** Update your resume in Settings, then press
+**Work out my search words again**. It rebuilds the list from the new resume —
+and anything you added or adjusted by hand is kept exactly as you left it. Only
+the words the app worked out itself are replaced.
 
 ## Where everything is kept
 

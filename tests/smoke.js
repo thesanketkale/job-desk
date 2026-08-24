@@ -189,7 +189,8 @@ ok('clearing a secret works', settings.getSecret('anthropic_api_key') === null);
 
 /* ----------------------------------------------------------- database */
 group('The local database');
-ok('the vocabulary is seeded', db.val('SELECT COUNT(*) AS n FROM keywords', [], 0) > 50);
+ok('no vocabulary is invented for a new user',
+  db.val('SELECT COUNT(*) AS n FROM keywords', [], 0) === 0);
 ok('sources are seeded', db.val('SELECT COUNT(*) AS n FROM sources', [], 0) >= 8);
 db.insert('jobs', { fingerprint: 'fp1', title: 'A', company: 'B', matched_terms: '[]' });
 let threw = false;
@@ -246,6 +247,196 @@ fs.copyFileSync(exampleSrc, path.join(freshDir, 'master-resume.json'));
   freshDb.init(realPaths.root);          // put the suite's own database back
 }
 
+/* ------------------------------------------------------ reading a resume */
+group('Reading a resume');
+const resumeParse = require('../src/main/resume-parse');
+const resumeKeywords = require('../src/main/resume-keywords');
+const resumeRead = require('../src/main/resume-read');
+
+const SAMPLE = `SARAH CHEN
+Senior Data Analyst  |  Business Intelligence
+
+sarah.chen@example.com | +44 7700 900123
+London, United Kingdom
+linkedin.com/in/sarahchen-data | www.sarahchen.dev
+
+PROFESSIONAL SUMMARY
+An experienced data analyst with over seven years turning operational data into decisions
+leadership uses. Specialises in retail demand forecasting and executive dashboards.
+
+WORK EXPERIENCE
+
+Senior Data Analyst, Northwind Retail Group
+Mar 2021 - Present
+• Built the demand forecasting model now used across 240 stores, cutting stockouts by 18%.
+• Own the executive dashboard suite in Power BI, used daily by the leadership team.
+
+Data Analyst | Brightpath Consulting
+Jun 2018 – Feb 2021
+• Delivered customer segmentation analysis for twelve retail and logistics clients.
+
+EDUCATION
+MSc Data Science, University of Edinburgh, 2015 - 2016
+
+SKILLS
+Languages: Python, SQL, R
+Specialisations: Demand Forecasting, Customer Segmentation`;
+
+const read = resumeParse.parseResume(SAMPLE);
+const rcv = read.cv;
+
+ok('the name is found', rcv.name === 'Sarah Chen', rcv.name);
+ok('a shouty name is not left shouting', rcv.name !== rcv.name.toUpperCase());
+ok('the job title under the name is the headline',
+  /Senior Data Analyst/.test(rcv.headline) && !/SARAH/i.test(rcv.headline), rcv.headline);
+ok('the email is found', rcv.contact.email === 'sarah.chen@example.com', rcv.contact.email);
+ok('the phone number is found', rcv.contact.phone.replace(/\D/g, '') === '447700900123', rcv.contact.phone);
+ok('a year is not mistaken for a phone number', !/^20\d\d$/.test(rcv.contact.phone));
+ok('linkedin is found', rcv.contact.linkedin.includes('linkedin.com/in/sarahchen'));
+ok('the personal site is found, not linkedin again', rcv.contact.website.includes('sarahchen.dev'));
+ok('the location is found', rcv.contact.location === 'London, United Kingdom', rcv.contact.location);
+
+ok('every role is found', rcv.experience.length === 2, String(rcv.experience.length));
+ok('the title and employer are split',
+  rcv.experience[0].title === 'Senior Data Analyst' && rcv.experience[0].org === 'Northwind Retail Group',
+  `${rcv.experience[0].title} / ${rcv.experience[0].org}`);
+ok('an open-ended role reads as Present', rcv.experience[0].end === 'Present', rcv.experience[0].end);
+ok('dates are kept as written', rcv.experience[0].start === 'Mar 2021', rcv.experience[0].start);
+ok('bullets belong to their own role', rcv.experience[0].bullets.length === 2,
+  String(rcv.experience[0].bullets.length));
+ok('the next role does not bleed into the last bullet',
+  !rcv.experience[0].bullets.join(' ').includes('Brightpath'));
+ok('an en-dash date range is read too', rcv.experience[1].end === 'Feb 2021', rcv.experience[1].end);
+
+ok('education is found', rcv.education.length === 1 && rcv.education[0].degree === 'MSc Data Science',
+  JSON.stringify(rcv.education[0]));
+ok('the institution is split out', rcv.education[0].school === 'University of Edinburgh');
+
+ok('grouped skills keep their groups', !!rcv.competencies.Languages && !!rcv.competencies.Specialisations,
+  Object.keys(rcv.competencies).join(','));
+ok('a one-letter skill survives', rcv.competencies.Languages.includes('R'),
+  JSON.stringify(rcv.competencies.Languages));
+ok('a labelled list is not mistaken for a section heading',
+  rcv.competencies.Languages.includes('Python'));
+
+ok('the summary is kept in the third person', /^An experienced/.test(rcv.summary), rcv.summary.slice(0, 30));
+ok('the pitch is turned into the first person', /^I am an experienced/.test(rcv.pitch), rcv.pitch.slice(0, 30));
+ok('what could not be read is reported honestly',
+  read.confidence.name === 'high' && read.confidence.email === 'high');
+
+/* --------------------------------------------------- the profile facts */
+group('The facts kept for quick access');
+const facts = resumeParse.profileFrom(rcv);
+ok('the name is stored', facts.profile_name === 'Sarah Chen');
+ok('the email is stored', facts.profile_email === 'sarah.chen@example.com');
+ok('the phone number is stored', facts.profile_phone.includes('7700'));
+ok('the city is split out of the location', facts.profile_city === 'London', facts.profile_city);
+ok('the country is split out too', facts.profile_country === 'United Kingdom', facts.profile_country);
+ok('years of experience are counted from the earliest role',
+  Number(facts.profile_years) >= 8, facts.profile_years);
+ok('nothing personal is invented when the CV is empty',
+  resumeParse.profileFrom({}).profile_name === '');
+
+/* ------------------------------------------- keywords out of the resume */
+group('Working out the search words');
+const gen = resumeKeywords.fromCv(rcv);
+const qterms = gen.query.map((k) => k.term);
+const bterms = gen.boost.map((k) => k.term);
+
+ok('job titles become search words', qterms.includes('data analyst'), qterms.join(', '));
+ok('a separated headline is split, not fused',
+  qterms.includes('business intelligence') && !qterms.some((t) => t.includes('analyst business')),
+  qterms.join(', '));
+ok('seniority is stripped so mid-level adverts still match',
+  !qterms.some((t) => /^(senior|junior|lead)\b/.test(t)), qterms.join(', '));
+ok('the name never becomes a search word',
+  !qterms.includes('sarah chen') && !bterms.includes('sarah chen'));
+ok('the query list is kept tight', gen.query.length <= 12, String(gen.query.length));
+
+ok('named skills become boosts', bterms.includes('python') && bterms.includes('sql'),
+  bterms.join(', '));
+ok('specialisations are weighted above ordinary skills',
+  gen.boost.find((k) => k.term === 'demand forecasting').weight
+  > gen.boost.find((k) => k.term === 'python').weight);
+ok('where she lives is a boost', bterms.includes('united kingdom'));
+ok('filler phrases are left out',
+  !bterms.some((t) => / (and|the|into|with|of) /.test(t)), bterms.join(', '));
+ok('a word already inside a longer term is not repeated',
+  !bterms.includes('demand') && !bterms.includes('forecasting'), bterms.join(', '));
+ok('nothing is excluded without being asked for', gen.exclude.length === 0);
+ok('an empty CV produces no keywords rather than throwing',
+  resumeKeywords.fromCv({}).query.length === 0);
+
+/* ------------------------------------ replacing and refreshing the list */
+group('Refreshing the words when the resume changes');
+const profileMod = require('../src/main/profile');
+
+db.run('DELETE FROM keywords');
+db.insert('keywords', { term: 'my own word', kind: 'boost', weight: 9, bucket: 'custom', source: 'user' });
+db.insert('keywords', { term: 'data analyst', kind: 'query', weight: 3, bucket: 'custom', source: 'user' });
+
+const first = profileMod.rebuild(rcv);
+ok('the resume fills the list', first.added > 5, String(first.added));
+ok('a word she added by hand is kept',
+  !!db.get("SELECT 1 AS x FROM keywords WHERE term = 'my own word'"));
+ok('her weight wins over the resume\'s',
+  db.get("SELECT weight FROM keywords WHERE term = 'data analyst' AND kind = 'query'").weight === 3);
+ok('her rows are counted back to her', first.keptYours === 2, String(first.keptYours));
+
+const generatedNow = db.val("SELECT COUNT(*) AS n FROM keywords WHERE source = 'resume'", [], 0);
+const second = profileMod.rebuild({
+  name: 'Sarah Chen',
+  headline: 'Product Manager',
+  contact: { location: 'Berlin, Germany' },
+  experience: [{ title: 'Product Manager', org: 'Acme', start: 'Jan 2022', end: 'Present', bullets: [] }],
+  competencies: { Skills: ['Roadmapping'] },
+});
+ok('a new resume clears what the old one produced', second.removed === Number(generatedNow),
+  `${second.removed} vs ${generatedNow}`);
+ok('and puts the new career in its place',
+  !!db.get("SELECT 1 AS x FROM keywords WHERE term = 'product manager'"));
+ok('the old career is gone',
+  !db.get("SELECT 1 AS x FROM keywords WHERE term = 'business intelligence'"));
+ok('her own words survive a second rebuild',
+  !!db.get("SELECT 1 AS x FROM keywords WHERE term = 'my own word'"));
+ok('touching a keyword makes it hers', (() => {
+  const row = db.get("SELECT id FROM keywords WHERE source = 'resume' LIMIT 1");
+  profileMod.claimForUser(row.id);
+  return db.get('SELECT source FROM keywords WHERE id = ?', [row.id]).source === 'user';
+})());
+
+/* ----------------------------------------------- reading the file itself */
+group('Opening a resume file');
+const txtPath = path.join(dir, 'resume.txt');
+fs.writeFileSync(txtPath, SAMPLE);
+ok('a text file is read', resumeRead.readResumeFile(txtPath).text.includes('SARAH CHEN'));
+ok('the kind is reported', resumeRead.readResumeFile(txtPath).kind === 'text');
+
+const jsonPath = path.join(dir, 'cv.json');
+fs.writeFileSync(jsonPath, JSON.stringify(master));
+ok('an exported CV comes back whole, not re-parsed',
+  resumeRead.readResumeFile(jsonPath).cv.name === master.name);
+
+ok('a PDF says what to do instead', (() => {
+  fs.writeFileSync(path.join(dir, 'cv.pdf'), '%PDF-1.4 stub');
+  try { resumeRead.readResumeFile(path.join(dir, 'cv.pdf')); return false; }
+  catch (e) { return /Save as/i.test(e.message) && /docx/i.test(e.message); }
+})());
+ok('the old Word format explains itself', (() => {
+  fs.writeFileSync(path.join(dir, 'cv.doc'), 'stub');
+  try { resumeRead.readResumeFile(path.join(dir, 'cv.doc')); return false; }
+  catch (e) { return /Save as/i.test(e.message); }
+})());
+ok('a missing file does not throw a stack trace at her', (() => {
+  try { resumeRead.readResumeFile(path.join(dir, 'nope.txt')); return false; }
+  catch (e) { return /could not be found/i.test(e.message); }
+})());
+ok('markup in a Word file becomes paragraphs, not tags',
+  resumeRead.docxXmlToText('<w:p><w:r><w:t>One</w:t></w:r></w:p><w:p><w:r><w:t>Two</w:t></w:r></w:p>')
+    .trim() === 'One\nTwo');
+ok('entities inside a Word file decode',
+  resumeRead.docxXmlToText('<w:p><w:t>Caf&#233; &amp; co</w:t></w:p>').trim() === 'Café & co');
+
 /* ---------------------------------------------------------- autofill */
 group('The form filler');
 const src = buildScript({ firstName: 'Srishti', city: 'Vadodara' });
@@ -260,12 +451,32 @@ group('Making the CV files');
   const docxPath = path.join(dir, 'cv.docx');
   await require('../src/main/resume-pdf').render(master, pdfPath);
   await require('../src/main/resume-docx').render(master, docxPath);
-  ok('a PDF is produced', fs.existsSync(pdfPath) && fs.statSync(pdfPath).size > 6000);
+  // Sized for the fixture CV, which is deliberately shorter than a real one.
+  ok('a PDF is produced', fs.existsSync(pdfPath) && fs.statSync(pdfPath).size > 3000,
+    fs.existsSync(pdfPath) ? `${fs.statSync(pdfPath).size} bytes` : 'missing');
   ok('it is a real PDF', fs.readFileSync(pdfPath).subarray(0, 5).toString() === '%PDF-');
   ok('a Word file is produced', fs.existsSync(docxPath) && fs.statSync(docxPath).size > 5000);
   ok('it is a real docx', fs.readFileSync(docxPath).subarray(0, 2).toString() === 'PK');
 
+  /* The Word file the app just wrote is a real .docx, so reading it back proves
+     the importer against genuine Word markup rather than a hand-made sample. */
+  group('Reading back a real Word file');
+  const back = resumeRead.readResumeFile(docxPath);
+  ok('the Word file is read without a parser dependency', back.kind === 'docx');
+  // The document lays the name out in capitals, exactly as the PDF does.
+  ok('the name survives the round trip',
+    back.text.toLowerCase().includes(master.name.toLowerCase()), back.text.slice(0, 60));
+  ok('an employer survives the round trip', back.text.includes(master.experience[0].org));
+  ok('no XML tags leak into the text', !/<w:|<\/w:/.test(back.text));
+  const reparsed = resumeParse.parseResume(back.text);
+  ok('and it parses back into the same person', reparsed.cv.name === master.name, reparsed.cv.name);
+  ok('with the email intact', reparsed.cv.contact.email === master.contact.email,
+    reparsed.cv.contact.email);
+
   console.log(`\n${pass} passed, ${fail} failed\n`);
-  fs.rmSync(dir, { recursive: true, force: true });
+  // Windows keeps an open SQLite file locked, so close it before removing the folder.
+  db.close();
+  try { fs.rmSync(dir, { recursive: true, force: true }); }
+  catch { /* a leftover temp folder is not a test failure */ }
   process.exit(fail ? 1 : 0);
 })();

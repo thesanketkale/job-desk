@@ -39,7 +39,7 @@ window.applyApi.onNav(({ loading, url, canGoBack }) => {
   $('#back').disabled = !canGoBack;
   if (loading) say('Loading the page…');
   else if ($('#status').textContent === 'Loading the page…') {
-    say('Ready. Fill in her details, then check every field before submitting.');
+    say('Ready. Fill in your details, then check every field before submitting.');
   }
 });
 window.applyApi.onLoadError(({ desc }) => say(`The page would not load (${desc}).`, true));
@@ -58,7 +58,7 @@ $('#fill').addEventListener('click', () => run(
     }
     const parts = [`Filled ${r.filled.length} field${r.filled.length === 1 ? '' : 's'} (outlined in green).`];
     if (r.fileFields) parts.push('Now attach the CV.');
-    if (r.selects) parts.push(`${r.selects} dropdown${r.selects === 1 ? '' : 's'} still need her.`);
+    if (r.selects) parts.push(`${r.selects} dropdown${r.selects === 1 ? '' : 's'} still need you.`);
     parts.push('Check everything before submitting.');
     say(parts.join(' '));
   },

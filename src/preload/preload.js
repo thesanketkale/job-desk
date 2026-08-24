@@ -49,7 +49,15 @@ contextBridge.exposeInMainWorld('api', {
     toggle: call('keywords:toggle'),
     weight: call('keywords:weight'),
     remove: call('keywords:delete'),
+    refreshFromResume: call('keywords:refreshFromResume'),
   },
+  resume: {
+    choose: call('resume:choose'),
+    preview: call('resume:preview'),
+    apply: call('resume:apply'),
+    formats: call('resume:formats'),
+  },
+  profile: { get: call('profile:get') },
   sources: {
     list: call('sources:list'),
     probe: call('sources:probe'),

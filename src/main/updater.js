@@ -61,7 +61,7 @@ function init(getWindow) {
       defaultId: 0,
       cancelId: 1,
       message: `Version ${info.version} is ready`,
-      detail: 'It installs in a few seconds. Nothing she has saved is affected.',
+      detail: 'It installs in a few seconds. Nothing you have saved is affected.',
     });
     if (response === 0) autoUpdater.quitAndInstall();
   });

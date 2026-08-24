@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS keywords (
   kind    TEXT NOT NULL DEFAULT 'query',   -- query | boost | exclude
   weight  INTEGER NOT NULL DEFAULT 6,
   bucket  TEXT NOT NULL DEFAULT 'general',
+  source  TEXT NOT NULL DEFAULT 'user',    -- resume | user
   active  INTEGER NOT NULL DEFAULT 1,
   hits    INTEGER NOT NULL DEFAULT 0,
   created_at TEXT DEFAULT (datetime('now')),
@@ -163,6 +164,15 @@ function migrate() {
   if (!cols.includes('mode')) {
     db.exec("ALTER TABLE applications ADD COLUMN mode TEXT NOT NULL DEFAULT 'template'");
   }
+
+  // Where a keyword came from, so that rebuilding the vocabulary from an updated
+  // resume can replace what the resume produced without touching what the person
+  // added or edited by hand. Anything already in the table predates the resume
+  // importer and is therefore treated as theirs.
+  const kw = db.prepare('PRAGMA table_info(keywords)').all().map((c) => c.name);
+  if (!kw.includes('source')) {
+    db.exec("ALTER TABLE keywords ADD COLUMN source TEXT NOT NULL DEFAULT 'user'");
+  }
 }
 
 const handle = () => {
@@ -212,7 +222,21 @@ function backup() {
   return target;
 }
 
-module.exports = { init, all, get, run, val, insert, update, logActivity, backup,
+/**
+ * Closes the database and releases the file.
+ *
+ * Windows holds an open SQLite file against deletion, so anything that opens a
+ * database and then removes its folder — the test suite most of all — has to
+ * close it first or the removal fails.
+ */
+function close() {
+  if (!db) return;
+  try { db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); } catch { /* nothing to flush */ }
+  try { db.close(); } catch { /* already closed */ }
+  db = null;
+}
+
+module.exports = { init, all, get, run, val, insert, update, logActivity, backup, close,
   get paths() {
     if (!paths) throw new Error('The database is not open yet.');
     return paths;

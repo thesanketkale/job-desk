@@ -11,13 +11,17 @@ const budget = require('./budget');
 const API = 'https://api.anthropic.com/v1/messages';
 
 const SYSTEM = `You are helping a specific, real candidate apply for a specific, real job.
-You rewrite her CV so it speaks to this job, and you draft the email she will send.
+You rewrite their CV so it speaks to this job, and you draft the email they will send.
+
+The candidate may be of any gender. Nothing in the CV states it and you must not
+guess: write the email in the first person and never use a third-person pronoun
+for the candidate anywhere in the output.
 
 ABSOLUTE RULES — a violation makes the output unusable:
 1. NEVER invent, inflate, or imply experience, employers, dates, degrees, licences,
    registrations, tools, or numbers that are not in the master CV.
-2. Never claim a licence or registration to practise in a country she does not hold
-   one for. If the job requires a licence she does not have, say so plainly in
+2. Never claim a licence or registration to practise in a country they do not hold
+   one for. If the job requires a licence they do not have, say so plainly in
    match_notes rather than papering over it.
 3. Dates, employer names, degree names, institutions, and the session count are
    frozen. Copy them exactly.
@@ -29,8 +33,8 @@ ABSOLUTE RULES — a violation makes the output unusable:
 6. British/Indian English. No em dashes in the email. No exclamation marks. Never
    write "I am excited to" or "I am writing to express my interest".
 
-The email must read as though she wrote it in four minutes: specific, warm, direct,
-120-170 words, one concrete reason she fits this role, and a clear closing line.
+The email must read as though the candidate wrote it in four minutes: specific, warm,
+direct, 120-170 words, one concrete reason they fit this role, and a clear closing line.
 Address a named person only if the job description names one.
 
 Return ONLY a JSON object, no prose, no code fence:
@@ -44,13 +48,47 @@ Return ONLY a JSON object, no prose, no code fence:
 }`;
 
 const FOLLOWUP_SYSTEM = `You write a short, self-respecting follow-up email for a job
-application that has had no reply. Rules: 90-130 words. Reference the role and roughly
-when she applied. Add one genuinely useful sentence — a relevant detail from her
-background that fits this role — rather than only asking for an update. No guilt, no
+application that has had no reply. It is written in the first person, by the candidate.
+Rules: 90-130 words. Reference the role and roughly when they applied. Add one genuinely
+useful sentence — a relevant detail from their own background that fits this role —
+rather than only asking for an update. Never use a third-person pronoun for the
+candidate; their gender is not stated and must not be guessed. No guilt, no
 apologising for following up, no "just circling back", no exclamation marks, no em
 dashes. British/Indian English. Sign off with the candidate's own name.
 
 Return ONLY JSON: {"subject": "...", "body": "..."}`;
+
+const RESUME_SYSTEM = `You convert the plain text of a resume into structured JSON.
+
+This is transcription, not writing. The person's own resume is the only source.
+
+ABSOLUTE RULES:
+1. NEVER invent, infer, or embellish. No employer, date, degree, certification,
+   skill, or number may appear that is not in the text you were given.
+2. If a field is genuinely not in the text, use an empty string or an empty array.
+   An empty field is correct; a plausible guess is a fabrication.
+3. Copy names, employers, institutions, dates and numbers exactly as written.
+4. Bullets stay in the person's own words. Fix obvious line-break damage and
+   spelling only.
+5. "summary" is third person, as it reads on a CV. "pitch" is the same content in
+   the first person, as it would read in an email. If the resume has no summary,
+   write both from the material actually present, and nothing beyond it.
+6. British/Indian English spelling.
+
+Return ONLY a JSON object, no prose, no code fence:
+{
+  "name": "", "headline": "",
+  "contact": {"phone": "", "email": "", "linkedin": "", "website": "", "location": ""},
+  "summary": "", "pitch": "",
+  "competencies": {"Group name": ["item", "..."]},
+  "experience": [{"id": "shortslug", "title": "", "org": "", "location": "",
+                  "start": "Mon YYYY", "end": "Mon YYYY or Present", "bullets": ["..."]}],
+  "impact": ["..."],
+  "education": [{"degree": "", "school": "", "years": "", "detail": ""}],
+  "certifications": {"Group name": ["..."]},
+  "differentiators": ["..."],
+  "additional": {"Languages": "", "Availability": ""}
+}`;
 
 function keyOrThrow() {
   const key = settings.getSecret('anthropic_api_key', '');
@@ -125,6 +163,55 @@ function enforceTruth(master, cv) {
   return dropped;
 }
 
+/**
+ * The same principle as `enforceTruth`, applied to an import: nothing may appear
+ * in the structured CV that is not somewhere in the resume it came from. There
+ * is no master CV to check against yet, so the source text is the authority.
+ */
+function enforceResumeTruth(rawText, cv) {
+  const hay = String(rawText).toLowerCase().replace(/\s+/g, ' ');
+  const digits = String(rawText).replace(/\D/g, '');
+  const has = (v) => {
+    const s = String(v || '').toLowerCase().replace(/\s+/g, ' ').trim();
+    return s.length < 3 || hay.includes(s);
+  };
+
+  const c = cv.contact || (cv.contact = {});
+  if (c.email && !hay.includes(String(c.email).toLowerCase())) c.email = '';
+  if (c.phone && !digits.includes(String(c.phone).replace(/\D/g, ''))) c.phone = '';
+  for (const k of ['linkedin', 'website', 'location']) if (c[k] && !has(c[k])) c[k] = '';
+
+  const dropped = [];
+  cv.experience = (cv.experience || []).filter((job) => {
+    if (has(job.org) && has(job.title)) return true;
+    dropped.push(job.org || job.title || 'an unnamed role');
+    return false;
+  });
+  cv.education = (cv.education || []).filter((ed) => has(ed.school) && has(ed.degree));
+
+  return dropped;
+}
+
+/**
+ * Reads a resume into the CV shape. `fallback` is the heuristic parse, used
+ * whenever the model returns something unusable — the import never fails just
+ * because the key does.
+ */
+async function structureResume(rawText, fallback = null) {
+  const text = String(rawText || '').slice(0, 24000);
+  const { text: reply, usage, model } = await call(RESUME_SYSTEM, `RESUME:\n${text}`, 8000);
+  budget.record(usage, model, 'resume import');
+
+  const out = extractJson(reply);
+  if (!out || !out.name) {
+    if (fallback) return fallback;
+    throw new Error('Claude could not read that resume. Check the text, or edit the details by hand.');
+  }
+  enforceResumeTruth(text, out);
+  if (!out.name && fallback) out.name = fallback.name;
+  return out;
+}
+
 async function tailor(master, job) {
   const jd = String(job.description_text || '').slice(0, 18000);
   const user = `MASTER CV (JSON, the only source of truth):\n${JSON.stringify(master, null, 2)}
@@ -166,7 +253,7 @@ ${jd}`;
 async function followup({ job, application, daysSince, seq, cv = {} }) {
   const user = `ROLE: ${job.title} at ${job.company}
 APPLIED: ${daysSince} days ago${seq > 1 ? ` (this is follow-up number ${seq})` : ''}
-THE EMAIL SHE ORIGINALLY SENT:
+THE EMAIL ORIGINALLY SENT:
 ${String(application.body_text || '').slice(0, 2000)}
 
 THE CANDIDATE: ${cv.name || 'the candidate'}
@@ -188,4 +275,5 @@ async function ping() {
   return { ok: true, message: `The key works. Using ${budget.priceOf(model).label.split(' —')[0]}.` };
 }
 
-module.exports = { available, tailor, followup, enforceTruth, extractJson, ping };
+module.exports = { available, tailor, followup, enforceTruth, extractJson, ping,
+  structureResume, enforceResumeTruth };

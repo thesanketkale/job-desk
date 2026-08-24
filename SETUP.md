@@ -11,7 +11,7 @@ Unzip the bundle somewhere sensible — `D:\projects\jobdesk` or similar — the
 ```bash
 cd jobdesk
 npm install
-npm test          # 88 checks, should all pass
+npm test          # 153 checks, should all pass
 npm start         # the app opens
 ```
 
@@ -53,8 +53,8 @@ This is only safe because **nothing personal is in the repository or the build**
   anything matches.
 
 **Keep the real CV somewhere.** It is not in the repo any more. A private gist, a
-password manager note, or just the copy already in `%APPDATA%\Job Desk\` on her
-machine. Losing it means retyping it, nothing worse.
+password manager note, or just the copy already in `%APPDATA%\Job Desk\` on the
+machine running it. Losing it means importing the resume again, nothing worse.
 
 ## 4. Push it
 
@@ -97,7 +97,7 @@ and the portable `.exe` appear at `github.com/thesanketkale/job-desk/releases`.
 
 `npm run release minor` and `npm run release 2.0.0` also work.
 
-## 7. Give her the app
+## 7. Hand the app over
 
 Download `Job Desk Setup x.y.z.exe` from Releases and hand it over.
 
@@ -106,16 +106,16 @@ the app is unsigned — **More info** → **Run anyway**, once. It never asks ag
 (A code-signing certificate is about $200/year and removes that. For one person
 on one machine it is not worth it.)
 
-**Her CV.** The installer deliberately ships without it. Either:
+**The CV.** The installer deliberately ships without one, by design. Either:
 
-- open Settings on her machine and paste the CV JSON in, **or**
+- let the app read the resume on first launch, which is the normal path, **or**
 - copy `resources/master-resume.json` from your repo into
-  `%APPDATA%\Job Desk\master-resume.json` before she first opens the app, **or**
+  `%APPDATA%\Job Desk\master-resume.json` before it is first opened, **or**
 - build a personal copy that has it baked in: `npm run build:win:personal`,
   which writes to `dist-personal\`. Never publish that file anywhere.
 
 After the first release, updates take care of themselves: the app checks on
-launch, downloads quietly, and installs when she next closes it.
+launch, downloads quietly, and installs when the app is next closed.
 
 ---
 
@@ -159,7 +159,7 @@ being read from the CV at runtime.
 **The build fails on Windows but works locally.** Usually a filename case
 mismatch; Windows does not care about case and Linux CI does. Check your imports.
 
-**She reports no updates.** Confirm `updates.channel` is `github-public` in
+**No updates are showing up.** Confirm `updates.channel` is `github-public` in
 `package.json` and that `build.publish[0].owner` matches your username. The app
 logs update failures silently on purpose — check `%APPDATA%\Job Desk\logs\`.
 

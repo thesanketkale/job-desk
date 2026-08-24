@@ -8,7 +8,7 @@ Srishti Sharma, a counselling psychologist. Electron on Windows, no server.
 ```bash
 npm install
 npm start            # npm run dev opens devtools
-npm test             # 88 checks, no Electron and no network needed
+npm test             # 153 checks, no Electron and no network needed
 ```
 
 `npm test` needs Node 22.5+ on the system PATH (`node:sqlite` isn't available
@@ -49,6 +49,20 @@ against claude.com/pricing before trusting them.
 branches on `claude.available()` and both branches return the same shape. Any new
 feature that only works with a key needs a template fallback or a clear reason.
 
+**The vocabulary belongs to the resume, not to the source.** There is no starter
+keyword list in `seed.js` any more, deliberately: one typed by somebody else
+describes somebody else's career. `profile.rebuild()` builds it from the CV.
+When it runs again it deletes only rows with `source = 'resume'` — anything the
+person added, re-weighted or toggled is marked `source = 'user'` and survives.
+If you add a path that writes keywords, set `source` or it will be treated as
+theirs and never refresh.
+
+**A parse is shown before it is saved.** `profile.preview()` reads and returns;
+`profile.apply()` is what writes. Nothing derived from a resume — the CV, the
+contact details, the keywords — is committed without the person seeing it in the
+review step first. Heuristics get things wrong, and a wrong parse that is visible
+costs a correction while a silent one costs a wrong application.
+
 **The installer must never contain personal data.** `resources/master-resume.json`
 is excluded from `build.files`; the CV is copied into the user's data folder on
 first run. This is what makes the public releases repo safe. There is a test and
@@ -59,6 +73,10 @@ a CI step guarding it.
 | Path | What |
 |---|---|
 | `src/main/db.js` | Schema and query helpers. Migrations are additive-only, in `migrate()`. |
+| `src/main/resume-read.js` | Resume file → plain text. `.docx` via a hand-rolled ZIP read; no dependency. |
+| `src/main/resume-parse.js` | Plain text → the CV shape, plus the flat profile facts. |
+| `src/main/resume-keywords.js` | CV → the query/boost vocabulary. |
+| `src/main/profile.js` | Owns the whole consequence of an import: CV, facts, mailbox, keywords. |
 | `src/main/sources.js` | One adapter per job source. All published APIs; nothing scrapes. |
 | `src/main/normalize.js` | Feed data → one comparable shape. Work mode, place, entities, fingerprints. |
 | `src/main/score.js` | Keyword ranking. Title matches count triple. |

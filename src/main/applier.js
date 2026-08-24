@@ -146,7 +146,7 @@ function checkRails(a) {
          AND j.company = ? AND ap.sent_at > datetime('now', ?)`,
       [...SENT_STATES, a.id, a.job.company, `-${cooldown} days`], 0);
     if (Number(recent) > 0) {
-      problems.push(`She already applied to ${a.job.company} in the last ${cooldown} days.`);
+      problems.push(`You already applied to ${a.job.company} in the last ${cooldown} days.`);
     }
   }
   return problems;
