@@ -5,28 +5,41 @@ name: Tests
 on:
   push:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**', '.gitignore', 'LICENSE']
   pull_request:
     branches: [main]
+    paths-ignore: ['**.md', 'docs/**', '.gitignore', 'LICENSE']
   workflow_dispatch:
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # The release commit is tested again by the Release workflow on the tag
+    # pushed two seconds later (see scripts/release.mjs). Without this, every
+    # release runs the suite twice. head_commit is absent on pull_request and
+    # workflow_dispatch, so those still run.
+    if: "!startsWith(github.event.head_commit.message, 'Release v')"
 
     steps:
       - uses: actions/checkout@v6
+
+      # Needs nothing but the checkout, so it runs before anything is installed.
+      - name: Refuse to ship secrets
+        run: |
+          if grep -rEn "sk-ant-[A-Za-z0-9_-]{20,}" src resources scripts; then
+            echo "::error::A real API key looks like it was committed."
+            exit 1
+          fi
 
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: npm
-
-      # Electron's binary is ~100 MB and the tests never launch it.
-      - name: Install dependencies
-        run: npm ci
-        env:
-          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
 
       - name: Check every file parses
         run: |
@@ -34,12 +47,11 @@ jobs:
             node --check "$f" || exit 1
           done
 
+      # Electron's binary is ~100 MB and the tests never launch it.
+      - name: Install dependencies
+        run: npm ci
+        env:
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
+
       - name: Run the tests
         run: npm test
-
-      - name: Refuse to ship secrets
-        run: |
-          if grep -rEn "sk-ant-[A-Za-z0-9_-]{20,}" src resources scripts; then
-            echo "::error::A real API key looks like it was committed."
-            exit 1
-          fi

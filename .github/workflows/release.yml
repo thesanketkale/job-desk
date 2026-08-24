@@ -11,6 +11,10 @@ on:
 permissions:
   contents: write       # to create the release and attach the installers
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false   # never cancel mid-publish
+
 jobs:
   windows:
     runs-on: windows-latest
@@ -61,14 +65,16 @@ jobs:
             dist/*.exe.blockmap
             dist/latest.yml
 
-      # A copy that survives even if publishing fails, so a build is never lost.
-      - name: Keep the build artifacts
-        if: always()
+      # A fallback only for when publishing itself fails — on success the
+      # build is already attached to the Release, so storing a second 200 MB
+      # copy here would just burn artifact storage quota for nothing.
+      - name: Keep the build artifacts if publishing failed
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
           path: |
             dist/*.exe
             dist/*.yml
-          retention-days: 30
+          retention-days: 7
           if-no-files-found: warn
