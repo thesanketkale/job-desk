@@ -34,10 +34,10 @@
     <section class="view shell" id="view-welcome">
       <div class="page-head" style="max-width:64ch">
         <div>
-          <h1>Let's start with your resume</h1>
-          <p>Job Desk needs one thing to get going: your resume. Everything the app does is built
-             from it — the documents it generates, the letters it writes, the details it types into
-             company forms, and the words it searches the job sites for.</p>
+          <h1 id="w-head">Let's start with your resume</h1>
+          <p id="w-sub">Job Desk needs one thing to get going: your resume. Everything the app does
+             is built from it — the documents it generates, the letters it writes, the details it
+             types into company forms, and the words it searches the job sites for.</p>
         </div>
       </div>
 
@@ -109,6 +109,69 @@
           <button class="btn btn--primary" id="w-save">This is right — set me up</button>
           <button class="btn" id="w-back">Choose a different file</button>
           <span class="small muted" id="w-status"></span>
+        </div>
+      </div>
+
+      <!-- Step 3: the optional AI key -->
+      <div id="w-step-key" class="hidden">
+        <div class="split">
+          <section class="panel">
+            <div class="panel__head"><h3>One optional extra</h3></div>
+            <p class="small muted">Job Desk is fully set up and completely usable right now. This
+              one thing is optional, costs money, and you can add it later just as easily.</p>
+
+            <p style="margin-top:var(--s4)"><b>A Claude API key changes three things:</b></p>
+            <ul class="notes" style="margin-top:var(--s3);list-style:none;padding-left:0">
+              <li><b>Your CV is rewritten for each role</b> — reordered and reworded into the
+                employer's own language, instead of the same CV going to everyone. Your dates,
+                employers and qualifications stay locked and cannot be changed.</li>
+              <li><b>The email is written from the job description</b> — specific to that role,
+                rather than a template with one sentence for you to fill in.</li>
+              <li><b>An honest read on whether you qualify</b> — what matches, what is missing,
+                and anything that blocks it, like a licence you do not hold. Keyword matching
+                cannot see any of that.</li>
+            </ul>
+
+            <p class="inline-note" style="margin-top:var(--s4)"><b>What it costs.</b> About ₹5
+              (US$0.06) for each application you tailor. It is prepaid — you load credit at
+              console.anthropic.com and when it runs out it simply stops. It is separate from a
+              Claude chat subscription and cannot draw on one. Job Desk also enforces its own
+              monthly limit, $10 out of the box, checked before every single request.</p>
+
+            <label class="field" style="margin-top:var(--s4)"><span>Claude API key</span>
+              <input type="password" id="w-key" autocomplete="off" spellcheck="false"
+                placeholder="sk-ant-…">
+              <span class="inline-note">Checked against the API before it is saved, so a wrong key
+                is caught now rather than on your first application. Stored encrypted by Windows.</span></label>
+
+            <div class="row" style="margin-top:var(--s3)">
+              <button class="btn btn--primary" id="w-key-save">Check and save the key</button>
+              <button class="btn" id="w-key-skip">Skip for now</button>
+              <span class="small muted" id="w-key-status"></span>
+            </div>
+            <p class="small muted" style="margin-top:var(--s3)">
+              <a href="#" data-external="https://console.anthropic.com/settings/keys">Get a key</a> —
+              or skip, and add one from Settings whenever you feel like it.</p>
+          </section>
+
+          <aside class="panel">
+            <div class="panel__head"><h3>Without a key you still get</h3></div>
+            <div class="timeline">
+              <div class="timeline__row"><span class="timeline__dot"></span>
+                <span>Finding, ranking and filtering every role</span><span></span></div>
+              <div class="timeline__row"><span class="timeline__dot"></span>
+                <span>Your CV as a properly laid out PDF and Word file</span><span></span></div>
+              <div class="timeline__row"><span class="timeline__dot"></span>
+                <span>Applying by email, with a template letter</span><span></span></div>
+              <div class="timeline__row"><span class="timeline__dot"></span>
+                <span>Company forms filled in from your details</span><span></span></div>
+              <div class="timeline__row"><span class="timeline__dot"></span>
+                <span>Tracking, follow-ups and reminders</span><span></span></div>
+            </div>
+            <p class="inline-note" style="margin-top:var(--s4)">That is a perfectly respectable way
+              to apply, and plenty of people apply exactly like this. Nothing is crippled or
+              time-limited without a key.</p>
+          </aside>
         </div>
       </div>
     </section>

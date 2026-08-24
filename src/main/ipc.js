@@ -243,6 +243,17 @@ function register(ctx) {
   });
   handle('settings:testMail', () => mailer.verify());
   handle('settings:testClaude', () => claude.ping());
+
+  /**
+   * Checks a typed key against the real API and saves it only if it works, so a
+   * rejected key never ends up stored and silently failing later.
+   */
+  handle('settings:validateClaudeKey', async ({ key }) => {
+    const result = await claude.validateKey(key);
+    settings.setSecret('anthropic_api_key', String(key).trim());
+    db.logActivity('claude_key_added', 'The Claude key was checked and saved.');
+    return result;
+  });
   handle('settings:sendTestEmail', async ({ to }) => {
     const cvPath = path.join(db.paths.resumes, 'master-preview.pdf');
     await pdf.render(masterCv.master(), cvPath);

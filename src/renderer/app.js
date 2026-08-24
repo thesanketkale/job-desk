@@ -701,6 +701,17 @@ function renderResumeReplacement(read) {
 }
 
 VIEWS.welcome = async function welcome() {
+  // Entering the view always starts at step one, whatever was on screen before.
+  if (!pendingImport) {
+    $('#w-step-import').classList.remove('hidden');
+    $('#w-step-review').classList.add('hidden');
+    $('#w-step-key').classList.add('hidden');
+    $('#w-head').textContent = "Let's start with your resume";
+    $('#w-sub').textContent = 'Job Desk needs one thing to get going: your resume. Everything the '
+      + 'app does is built from it — the documents it generates, the letters it writes, the details '
+      + 'it types into company forms, and the words it searches the job sites for.';
+  }
+
   const busy = (btn, label) => {
     btn.disabled = true;
     btn.dataset.was = btn.textContent;
@@ -747,8 +758,38 @@ VIEWS.welcome = async function welcome() {
       const n = out.keywords?.added || 0;
       toast(`Set up for ${out.cv.name} — ${n} search word${n === 1 ? '' : 's'} from your resume.`);
       pendingImport = null;
-      location.hash = '#/today';
+      // The app is usable from this moment. The key step is genuinely optional,
+      // and skipping it must cost nothing, so it comes after the setup is done.
+      $('#w-head').textContent = `You are set up, ${String(out.cv.name).split(' ')[0]}`;
+      $('#w-sub').textContent = 'Job Desk is ready to use. There is one optional extra, and it is '
+        + 'the only thing in here that costs anything.';
+      $('#w-step-review').classList.add('hidden');
+      $('#w-step-key').classList.remove('hidden');
+      done(btn);
     } catch (err) { oops(err); done(btn); }
+  };
+
+  const finish = () => { location.hash = '#/today'; };
+
+  $('#w-key-skip').onclick = finish;
+
+  $('#w-key-save').onclick = async (e) => {
+    const btn = e.currentTarget;
+    const key = $('#w-key').value.trim();
+    if (!key) { toast('Paste the key first, or press Skip for now.', 'warn'); return; }
+    busy(btn, 'Checking…');
+    $('#w-key-status').textContent = '';
+    try {
+      const r = await call(window.api.settings.validateClaudeKey, { key });
+      $('#w-key').value = '';
+      toast(r.message || 'The key works. Tailoring is on.');
+      finish();
+    } catch (err) {
+      // Nothing was saved, so she can correct it and try again.
+      $('#w-key-status').textContent = 'Not saved — the key was refused.';
+      oops(err);
+      done(btn);
+    }
   };
 };
 
@@ -1264,7 +1305,7 @@ VIEWS.settings = async function settingsView() {
         <input type="password" id="s-claude" placeholder="${s.has_anthropic_key ? '•••••••••••••••• (already saved)' : 'sk-ant-… — leave empty to keep using templates'}"
                autocomplete="off" spellcheck="false"></label>
       <div class="row" style="margin-top:var(--s3)">
-        <button class="btn btn--primary btn--sm" id="s-claude-save">Save the key</button>
+        <button class="btn btn--primary btn--sm" id="s-claude-save">Check and save the key</button>
         <button class="btn btn--sm" id="s-claude-test" ${s.has_anthropic_key ? '' : 'disabled'}>Check it works</button>
         ${s.has_anthropic_key ? '<button class="btn btn--ghost btn--sm btn--danger" id="s-claude-clear">Remove it</button>' : ''}
       </div>
@@ -1508,14 +1549,23 @@ VIEWS.settings = async function settingsView() {
     go('settings');
   });
 
-  $('#s-claude-save').addEventListener('click', async () => {
+  // Checked against the API first: a key that is saved but wrong looks like it
+  // is working until the first application fails.
+  $('#s-claude-save').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
     const v = $('#s-claude').value.trim();
     if (!v) { toast('Paste the key first.', 'warn'); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Checking…';
     try {
-      await call(window.api.settings.setSecret, { key: 'anthropic_api_key', value: v });
-      toast('Key saved.');
+      const r = await call(window.api.settings.validateClaudeKey, { key: v });
+      toast(r.message || 'The key works and has been saved.');
       go('settings');
-    } catch (err) { oops(err); }
+    } catch (err) {
+      oops(err);
+      btn.disabled = false;
+      btn.textContent = 'Check and save the key';
+    }
   });
   $('#s-claude-test').addEventListener('click', async (e) => {
     e.currentTarget.disabled = true;

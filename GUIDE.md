@@ -69,7 +69,13 @@ this.
 
 ## What an AI key adds
 
-Optional. Settings → *Claude*. It changes three things:
+The app offers this once, right after it reads your resume, and **Skip for now**
+there costs you nothing — everything above keeps working. You can add a key later
+from Settings → *Claude*, or change one you have already added, and the app
+checks it against the API before saving so a mistyped key is caught immediately
+rather than on your first application.
+
+It changes three things:
 
 **1. The CV is rewritten for each job.** Instead of the same master CV going to
 everyone, it is reordered, reworded into the employer's own language, and trimmed

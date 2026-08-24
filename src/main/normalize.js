@@ -30,6 +30,27 @@ const COUNTRY_MAP = {
   singapore: 'Singapore', uae: 'United Arab Emirates', 'united arab emirates': 'United Arab Emirates',
   dubai: 'United Arab Emirates', germany: 'Germany', deutschland: 'Germany',
   netherlands: 'Netherlands', ireland: 'Ireland', 'new zealand': 'New Zealand', philippines: 'Philippines',
+
+  // The list above was written around one job search and left most of the world
+  // as "unknown", which loses the country filter on the board as well as the
+  // location read off a resume.
+  spain: 'Spain', france: 'France', italy: 'Italy', portugal: 'Portugal',
+  belgium: 'Belgium', switzerland: 'Switzerland', austria: 'Austria',
+  sweden: 'Sweden', norway: 'Norway', denmark: 'Denmark', finland: 'Finland',
+  poland: 'Poland', czechia: 'Czechia', 'czech republic': 'Czechia',
+  romania: 'Romania', greece: 'Greece', hungary: 'Hungary', ukraine: 'Ukraine',
+  turkey: 'Turkey', türkiye: 'Turkey', israel: 'Israel',
+  nigeria: 'Nigeria', kenya: 'Kenya', ghana: 'Ghana', egypt: 'Egypt',
+  'south africa': 'South Africa', morocco: 'Morocco', tanzania: 'Tanzania',
+  brazil: 'Brazil', brasil: 'Brazil', mexico: 'Mexico', argentina: 'Argentina',
+  chile: 'Chile', colombia: 'Colombia', peru: 'Peru',
+  japan: 'Japan', china: 'China', 'hong kong': 'Hong Kong', taiwan: 'Taiwan',
+  'south korea': 'South Korea', korea: 'South Korea', vietnam: 'Vietnam',
+  thailand: 'Thailand', malaysia: 'Malaysia', indonesia: 'Indonesia',
+  pakistan: 'Pakistan', bangladesh: 'Bangladesh', 'sri lanka': 'Sri Lanka',
+  nepal: 'Nepal', 'saudi arabia': 'Saudi Arabia', qatar: 'Qatar', kuwait: 'Kuwait',
+  bahrain: 'Bahrain', oman: 'Oman',
+
   remote: 'Remote', worldwide: 'Remote', anywhere: 'Remote', global: 'Remote',
 };
 

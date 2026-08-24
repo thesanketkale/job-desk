@@ -11,7 +11,7 @@ Unzip the bundle somewhere sensible — `D:\projects\jobdesk` or similar — the
 ```bash
 cd jobdesk
 npm install
-npm test          # 153 checks, should all pass
+npm test          # 190 checks, should all pass
 npm start         # the app opens
 ```
 

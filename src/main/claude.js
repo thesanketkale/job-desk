@@ -107,7 +107,7 @@ function extractJson(text) {
   try { return JSON.parse(s.slice(a, b + 1)); } catch { return null; }
 }
 
-async function call(system, user, maxTokens = 8000) {
+async function call(system, user, maxTokens = 8000, key = null) {
   budget.checkBeforeCall();               // refuse before spending, not after
   const model = budget.model();
   const res = await postJson(API, {
@@ -116,7 +116,8 @@ async function call(system, user, maxTokens = 8000) {
     system,
     messages: [{ role: 'user', content: user }],
   }, {
-    'x-api-key': keyOrThrow(),
+    // An explicit key is passed only when checking one that is not saved yet.
+    'x-api-key': key || keyOrThrow(),
     'anthropic-version': '2023-06-01',
   });
 
@@ -269,11 +270,26 @@ BACKGROUND IN ONE LINE: ${cv.pitch || cv.summary || 'An experienced professional
 }
 
 /** A deliberately tiny request, so checking a key costs a fraction of a paisa. */
-async function ping() {
-  const { usage, model } = await call('Reply with the single word: ok', 'ping', 16);
+async function ping(key = null) {
+  const { usage, model } = await call('Reply with the single word: ok', 'ping', 16, key);
   budget.record(usage, model, 'key check');
   return { ok: true, message: `The key works. Using ${budget.priceOf(model).label.split(' —')[0]}.` };
 }
 
-module.exports = { available, tailor, followup, enforceTruth, extractJson, ping,
+/**
+ * Checks a key that has not been saved yet, so a rejected one is never stored.
+ * The obvious shape mistakes are caught locally, before spending anything.
+ */
+async function validateKey(key) {
+  const k = String(key || '').trim();
+  if (!k) throw new Error('Paste the key first. Console keys begin with "sk-ant-".');
+  if (!k.startsWith('sk-ant-')) {
+    throw new Error('That does not look like a Claude API key — they begin with "sk-ant-". '
+      + 'Check you copied the whole thing from console.anthropic.com.');
+  }
+  if (k.length < 30) throw new Error('That key looks truncated. Copy the whole value.');
+  return ping(k);
+}
+
+module.exports = { available, tailor, followup, enforceTruth, extractJson, ping, validateKey,
   structureResume, enforceResumeTruth };

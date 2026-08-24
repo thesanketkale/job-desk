@@ -324,6 +324,132 @@ ok('the pitch is turned into the first person', /^I am an experienced/.test(rcv.
 ok('what could not be read is reported honestly',
   read.confidence.name === 'high' && read.confidence.email === 'high');
 
+/* ------------------------------------------- resumes that are laid out badly */
+group('Resume layouts that differ from the tidy one');
+
+/* Every one of these broke the parser when it was first written. They cover the
+   ways real resumes actually vary: where the dates sit, whether the employer is
+   above or beside the title, piped contact lines, headings with a qualifier in
+   front, numeric dates, and countries outside the original hard-coded handful. */
+const LAYOUTS = [
+  {
+    what: 'dates tab-aligned to the right',
+    text: `Michael O'Brien
+michael.obrien@example.ie
++353 1 234 5678
+Dublin, Ireland
+
+Work Experience
+Product Manager\tNovaTech\tJan 2020 – Present
+• Owned the payments roadmap.
+Business Analyst\tCorePay\tJun 2017 – Dec 2019
+• Ran discovery for the merchant portal.`,
+    name: "Michael O'Brien",
+    phone: '35312345678',
+    country: 'Ireland',
+    roles: 2,
+    firstTitle: 'Product Manager',
+    firstOrg: 'NovaTech',
+  },
+  {
+    what: 'the employer on the line above the title',
+    text: `Priya Raghavan
+priya.raghavan@example.in
++91 98200 12345
+Mumbai, Maharashtra, India
+
+Professional Experience
+
+Infosys Limited
+Senior Consultant
+August 2019 — Present
+- Led SAP migration for three clients.`,
+    name: 'Priya Raghavan',
+    phone: '919820012345',
+    country: 'India',
+    roles: 1,
+  },
+  {
+    what: 'contact details on one piped line',
+    text: `Wei Zhang | Software Architect
+wei.zhang@example.com | +65 8123 4567 | Singapore | linkedin.com/in/weizhang
+
+EXPERIENCE
+Principal Engineer | Grab | Feb 2018 - Present
+• Designed the driver allocation service.
+
+TECHNICAL SKILLS
+Languages: Java, Go, Rust`,
+    name: 'Wei Zhang',
+    phone: '6581234567',
+    country: 'Singapore',
+    roles: 1,
+  },
+  {
+    what: 'a qualifier in front of the heading, and "Curriculum Vitae" on top',
+    text: `CURRICULUM VITAE
+
+Dr Amara Okafor
+Research Scientist
+amara.okafor@example.org
++234 803 123 4567
+Lagos, Nigeria
+
+RESEARCH EXPERIENCE
+Research Scientist, Nigerian Institute of Medical Research
+January 2018 - Present
+• Led malaria vaccine trials.`,
+    name: 'Dr Amara Okafor',
+    phone: '2348031234567',
+    country: 'Nigeria',
+    roles: 1,
+  },
+  {
+    what: 'numeric dates and a country outside the original list',
+    text: `ANA GARCIA LOPEZ
+Marketing Manager
+ana.garcia@example.es
++34 612 345 678
+Madrid, Spain
+
+EMPLOYMENT
+Marketing Manager, Zara Home
+03/2020 - Present
+• Ran the European campaign calendar.`,
+    name: 'Ana Garcia Lopez',
+    phone: '34612345678',
+    country: 'Spain',
+    roles: 1,
+  },
+];
+
+for (const c of LAYOUTS) {
+  const got = resumeParse.parseResume(c.text);
+  const prof = resumeParse.profileFrom(got.cv);
+  ok(`the name survives ${c.what}`, got.cv.name === c.name, got.cv.name);
+  ok(`the phone number survives ${c.what}`,
+    got.cv.contact.phone.replace(/\D/g, '') === c.phone, got.cv.contact.phone);
+  ok(`the country survives ${c.what}`, prof.profile_country === c.country, prof.profile_country);
+  ok(`the roles survive ${c.what}`, got.cv.experience.length === c.roles,
+    String(got.cv.experience.length));
+  if (c.firstTitle) {
+    ok('a tab splits the title from the employer',
+      got.cv.experience[0].title === c.firstTitle && got.cv.experience[0].org === c.firstOrg,
+      `${got.cv.experience[0].title} / ${got.cv.experience[0].org}`);
+  }
+  // The headline becomes a search word, so an address landing there would have
+  // the app asking job boards for "Mumbai" and "Ireland" as though they were roles.
+  const terms = resumeKeywords.fromCv(got.cv).query.map((k) => k.term).join(' ');
+  ok(`no place name becomes a search word with ${c.what}`,
+    !new RegExp(c.country.toLowerCase()).test(terms), terms);
+}
+
+ok('a country outside the original handful is recognised',
+  normalize.place('Madrid, Spain').country === 'Spain');
+ok('and another', normalize.place('São Paulo, Brazil').country === 'Brazil');
+ok('a heading with content after the colon is a list, not a section',
+  Object.keys(resumeParse.sectionise('SKILLS\nLanguages: Python, R')).includes('skills'));
+
 /* --------------------------------------------------- the profile facts */
 group('The facts kept for quick access');
 const facts = resumeParse.profileFrom(rcv);
@@ -472,6 +598,30 @@ group('Making the CV files');
   ok('and it parses back into the same person', reparsed.cv.name === master.name, reparsed.cv.name);
   ok('with the email intact', reparsed.cv.contact.email === master.contact.email,
     reparsed.cv.contact.email);
+
+  /* ------------------------------------------------ checking an API key ---- */
+  group('Checking a Claude key before saving it');
+  for (const [what, key] of [
+    ['an empty key', ''],
+    ['a key with the wrong prefix', 'abcdef0123456789abcdef0123456789'],
+    ['a truncated key', 'sk-ant-abc'],
+  ]) {
+    let msg = '';
+    try { await claude.validateKey(key); } catch (e) { msg = e.message; }
+    ok(`${what} is refused before any request is made`, !!msg, msg.slice(0, 60));
+    ok(`${what} is refused in plain language`,
+      !/undefined|\[object|TypeError|ECONN/.test(msg), msg.slice(0, 60));
+  }
+  ok('the refusal says what a real key looks like', await (async () => {
+    try { await claude.validateKey('nope'); return false; }
+    catch (e) { return e.message.includes('sk-ant-'); }
+  })());
+  // A well-shaped key has to get past the local checks and fail on the network,
+  // which is what proves the shape check is not the thing rejecting it.
+  ok('a well-formed key is not refused locally', await (async () => {
+    try { await claude.validateKey(`sk-ant-${'x'.repeat(40)}`); return false; }
+    catch (e) { return !/begin with|truncated|Paste the key/.test(e.message); }
+  })());
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   // Windows keeps an open SQLite file locked, so close it before removing the folder.

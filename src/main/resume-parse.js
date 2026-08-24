@@ -12,14 +12,18 @@
  * `claude.js` can do this far better when a key exists; both return the same
  * shape, exactly as `templates.js` and `claude.js` already do for applications.
  */
-const { place, decodeEntities } = require('./normalize');
+const { place, canonCountry, decodeEntities } = require('./normalize');
 
 /* ------------------------------------------------------------- contact ---- */
 
 const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g;
 
-/** Long enough to be a phone number, not a year, a PIN code or a session count. */
-const PHONE_RE = /(?:\+?\d{1,3}[\s.-]?)?(?:\(\d{2,4}\)[\s.-]?)?\d{3,5}[\s.-]?\d{3,4}[\s.-]?\d{0,4}/g;
+/**
+ * Long enough to be a phone number, not a year, a PIN code or a session count.
+ * Groups may be separated by spaces, dots or dashes and may be as short as one
+ * digit — "+353 1 234 5678" is an ordinary Dublin number.
+ */
+const PHONE_RE = /\+?\d[\d\s().-]{7,20}\d/g;
 
 function findEmail(text) {
   const all = String(text).match(EMAIL_RE) || [];
@@ -32,11 +36,12 @@ function findPhone(text) {
   // Only look where phone numbers live, so a date or a statistic cannot win.
   const head = String(text).split('\n').slice(0, 15).join('\n');
   const candidates = (head.match(PHONE_RE) || [])
-    .map((s) => s.trim())
+    .map((s) => s.trim().replace(/[.\-\s]+$/, ''))
     .filter((s) => {
       const digits = s.replace(/\D/g, '');
       if (digits.length < 8 || digits.length > 15) return false;
       if (/^(19|20)\d{2}$/.test(digits)) return false;         // a year
+      if (/\d{4}\s*[-–]\s*\d{4}/.test(s)) return false;        // a date range
       return true;
     });
   return candidates[0] || '';
@@ -74,12 +79,16 @@ const NOT_A_NAME = /\b(curriculum vitae|resume|r[ée]sum[ée]|profile|contact|ph
  * digits, no punctuation that belongs to an address.
  */
 function findName(text) {
-  const lines = String(text).split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 10);
+  const raw = String(text).split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 10);
+  // "Wei Zhang | Software Architect" puts the name and the title on one line;
+  // take the segments separately rather than rejecting the line for its pipe.
+  const lines = raw.flatMap((l) => (l.includes('|') ? l.split('|').map((s) => s.trim()) : [l]));
   for (const line of lines) {
     if (line.length > 60 || line.length < 3) continue;
     if (line.includes('@') || /\d/.test(line)) continue;
     if (NOT_A_NAME.test(line)) continue;
-    if (/[|/\\]/.test(line)) continue;
+    if (/[/\\]/.test(line)) continue;
+    if (headingOf(line)) continue;              // "Technical Skills" is not a name
     const words = line.replace(/[,.]/g, '').split(/\s+/).filter(Boolean);
     if (words.length < 2 || words.length > 5) continue;
     // Every word starts upper case, or the whole line is upper case.
@@ -102,11 +111,15 @@ const titleCase = (s) => String(s).toLowerCase()
  * exactly the same rules and therefore compare correctly.
  */
 function findLocation(text) {
-  const lines = String(text).split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 15);
+  const raw = String(text).split('\n').map((l) => l.trim()).filter(Boolean).slice(0, 15);
+  // A piped contact line carries the address as one segment among several, so
+  // the whole line contains an "@" while the segment that matters does not.
+  const lines = raw.flatMap((l) => (l.includes('|') ? l.split('|').map((s) => s.trim()) : [l]));
   for (const line of lines) {
     if (line.includes('@') || line.length > 80) continue;
     const candidate = line.replace(/^(address|location|based in)\s*[:\-–]\s*/i, '');
-    if (!/,/.test(candidate) && !/\b(india|remote)\b/i.test(candidate)) continue;
+    // Either "City, Country", or a bare line that is itself a country.
+    if (!/,/.test(candidate) && !canonCountry(candidate)) continue;
     if (/\d{4,}/.test(candidate)) continue;                 // a postcode or a year
     const p = place(candidate);
     if (p.country && p.country !== 'Unknown') {
@@ -120,7 +133,9 @@ function findLocation(text) {
 
 const HEADINGS = [
   ['summary',        /^(professional\s+)?(summary|profile|objective|about( me)?|overview)\b/i],
-  ['experience',     /^(work\s+|professional\s+|relevant\s+|employment\s+)?(experience|history|employment)\b/i],
+  // Any single qualifier may precede it — "Research Experience", "Clinical
+  // Experience", "Teaching Experience" are all the employment section.
+  ['experience',     /^([a-z]+\s+){0,2}(experience|employment|history)\b/i],
   ['education',      /^(education|academic|qualifications?)\b/i],
   ['skills',         /^(skills?|competenc(y|ies)|areas? of expertise|specialisations?|specializations?|technical skills)\b/i],
   ['certifications', /^(certifications?|licen[cs]es?|training|courses?|accreditations?)\b/i],
@@ -241,8 +256,15 @@ function parseExperience(block) {
 
 /** "Senior Therapist at Acme" / "Senior Therapist, Acme" / "Senior Therapist | Acme" */
 function splitTitleOrg(line) {
-  const s = String(line || '').replace(/\s+/g, ' ').trim();
-  if (!s) return ['', ''];
+  const raw = String(line || '').trim();
+  if (!raw) return ['', ''];
+  // Word lays these out in tab-separated columns; a tab is as much a separator
+  // as a comma, and is gone by the time whitespace has been collapsed.
+  if (/\t/.test(raw)) {
+    const cols = raw.split('\t').map((c) => c.trim()).filter(Boolean);
+    if (cols.length >= 2) return [cols[0], cols[1]];
+  }
+  const s = raw.replace(/\s+/g, ' ');
   const m = s.match(/^(.+?)\s*(?:\bat\b|[|,–—-])\s*(.+)$/i);
   if (m && m[1].length > 1 && m[2].length > 1 && m[2].length < 60) {
     return [m[1].trim(), m[2].trim()];
@@ -322,7 +344,7 @@ function parseResume(rawText) {
   const competencies = parseSkills(sections.skills);
 
   const summary = firstParagraph(sections.summary) || firstParagraph(sections.header, name, email);
-  const headline = findHeadline(sections.header, name) || (experience[0]?.title || '');
+  const headline = findHeadline(sections.header, name, loc.location) || (experience[0]?.title || '');
 
   const cv = {
     name: name || '',
@@ -370,16 +392,35 @@ function firstParagraph(block, ...drop) {
 }
 
 /** The line under the name, when it is a job title rather than an address. */
-function findHeadline(header, name) {
+function findHeadline(header, name, location = '') {
   if (!header) return '';
-  const lines = header.split('\n').map((l) => l.trim()).filter(Boolean);
-  // The name may have been title-cased out of a shouty line, so match loosely.
+  const raw = header.split('\n').map((l) => l.trim()).filter(Boolean);
   const low = String(name || '').toLowerCase();
-  const start = name ? lines.findIndex((l) => l.toLowerCase() === low) + 1 : 0;
-  for (const line of lines.slice(start, start + 3)) {
+
+  // When the name has a line to itself the headline is simply what follows, and
+  // a "|" in it is the person separating parts of their own title. Only when
+  // the name shares its line is the pipe a field separator worth splitting on.
+  const nameIdx = raw.findIndex((l) => l.toLowerCase() === low);
+  const lines = [];
+  if (low && nameIdx >= 0) {
+    lines.push(...raw.slice(nameIdx + 1, nameIdx + 5));
+  } else {
+    for (const line of raw.slice(0, 5)) {
+      if (low && line.toLowerCase().includes(low)) {
+        lines.push(...line.split('|').map((s) => s.trim()).filter((s) => s && s.toLowerCase() !== low));
+      } else lines.push(line);
+    }
+  }
+
+  for (const line of lines) {
     if (!line || line.length > 90 || line.length < 4) continue;
     if (line.includes('@') || /\d{4}/.test(line) || /https?:|www\./i.test(line)) continue;
     if (/^\+?\d/.test(line)) continue;
+    if (headingOf(line)) continue;
+    // A headline becomes a search term, so an address here would have the app
+    // asking job boards for "Mumbai" and "Ireland" as though they were roles.
+    if (line === location || canonCountry(line)) continue;
+    if (/,/.test(line) && place(line).country) continue;
     return line.replace(/\s*[|•]\s*/g, '  •  ');
   }
   return '';

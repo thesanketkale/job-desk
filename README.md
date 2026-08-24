@@ -183,7 +183,7 @@ rather than failing silently.
 ```bash
 npm install
 npm start          # or: npm run dev   (opens developer tools)
-npm test           # 153 checks, no Electron or network needed
+npm test           # 190 checks, no Electron or network needed
 ```
 
 `npm start` and `npm run dev` work on any recent Node, because Electron brings

@@ -8,7 +8,7 @@ Srishti Sharma, a counselling psychologist. Electron on Windows, no server.
 ```bash
 npm install
 npm start            # npm run dev opens devtools
-npm test             # 153 checks, no Electron and no network needed
+npm test             # 190 checks, no Electron and no network needed
 ```
 
 `npm test` needs Node 22.5+ on the system PATH (`node:sqlite` isn't available
@@ -48,6 +48,13 @@ against claude.com/pricing before trusting them.
 **The app works with no API key.** `templates.js` is the free path; `applier.prepare()`
 branches on `claude.available()` and both branches return the same shape. Any new
 feature that only works with a key needs a template fallback or a clear reason.
+Onboarding asks for a key *after* setup is complete and Skip is a first-class
+button, because the app is genuinely finished at that point.
+
+**A key is checked before it is stored.** `claude.validateKey()` tests the shape
+locally, then spends a fraction of a paisa proving it against the API;
+`settings:validateClaudeKey` saves only on success. A key that is saved but wrong
+looks like it is working until the first application fails.
 
 **The vocabulary belongs to the resume, not to the source.** There is no starter
 keyword list in `seed.js` any more, deliberately: one typed by somebody else
