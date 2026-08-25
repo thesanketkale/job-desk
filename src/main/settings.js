@@ -17,7 +17,7 @@ const DEFAULTS = {
   preferred_countries: ['India', 'Remote'],
   min_score_to_show: 25,
   refresh_on_launch: true,
-  refresh_every_hours: 6,
+  refresh_last_date: '',
   followup_days: [7, 16],
   followups_enabled: true,
   max_sends_per_day: 12,

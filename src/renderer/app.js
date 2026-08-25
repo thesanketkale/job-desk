@@ -1451,14 +1451,10 @@ VIEWS.settings = async function settingsView() {
       <span class="inline-note">How much each working pattern adds to a role's score.</span>
       <label class="field" style="margin-top:var(--s4)"><span>Countries you would take a job in</span>
         <input type="text" id="s-countries" value="${esc((s.preferred_countries || []).join(', '))}"></label>
-      <label class="field" style="margin-top:var(--s4)"><span>Look for new jobs every</span>
-        <select id="s-refresh">
-          ${[['0', 'Only when I ask'], ['3', '3 hours'], ['6', '6 hours'], ['12', '12 hours'], ['24', 'day']]
-    .map(([v, l]) => `<option value="${v}" ${String(s.refresh_every_hours) === v ? 'selected' : ''}>${l}</option>`).join('')}
-        </select></label>
       <label class="row small" style="margin-top:var(--s4);gap:var(--s2)">
         <input type="checkbox" id="s-launch" ${s.refresh_on_launch ? 'checked' : ''}>
-        Check for new jobs when the app opens</label>
+        Check for new jobs once a day, the first time I open the app</label>
+      <span class="inline-note">You can also click Refresh at the top any time you want the latest.</span>
     </section>
 
     <section class="panel">
@@ -1705,14 +1701,13 @@ VIEWS.settings = async function settingsView() {
   });
 
   const boardInputs = ['#s-minscore', '#s-w-remote', '#s-w-hybrid', '#s-w-onsite', '#s-countries',
-    '#s-refresh', '#s-launch', '#s-cap', '#s-cooldown', '#s-fu', '#s-fudays',
+    '#s-launch', '#s-cap', '#s-cooldown', '#s-fu', '#s-fudays',
     '#s-city', '#s-state', '#s-country', '#s-notice', '#s-years', '#s-salary', '#s-bcc'];
   for (const id of boardInputs) {
     $(id).addEventListener('change', () => patch({
       min_score_to_show: num('#s-minscore'),
       work_mode_preference: { remote: num('#s-w-remote'), hybrid: num('#s-w-hybrid'), onsite: num('#s-w-onsite') },
       preferred_countries: $('#s-countries').value.split(',').map((x) => x.trim()).filter(Boolean),
-      refresh_every_hours: num('#s-refresh'),
       refresh_on_launch: $('#s-launch').checked,
       max_sends_per_day: num('#s-cap'),
       company_cooldown_days: num('#s-cooldown'),

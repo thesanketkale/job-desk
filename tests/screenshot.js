@@ -125,7 +125,6 @@ app.whenReady().then(async () => {
     getMainWindow: () => win,
     runRefresh: async () => ({ sources: 0, found: 0, inserted: 0, updated: 0, errors: [] }),
     isRefreshing: () => false,
-    scheduleAutoRefresh: () => {},
     applyBrowser: require('../src/main/apply-browser'),
   });
 

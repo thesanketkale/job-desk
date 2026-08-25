@@ -34,7 +34,7 @@ function handle(channel, fn) {
 }
 
 function register(ctx) {
-  const { getMainWindow, runRefresh, isRefreshing, scheduleAutoRefresh, applyBrowser } = ctx;
+  const { getMainWindow, runRefresh, isRefreshing, applyBrowser } = ctx;
 
   /* ---------------------------------------------------------- board ---- */
 
@@ -232,7 +232,6 @@ function register(ctx) {
       if (k.startsWith('secret:')) continue;
       settings.set(k, v);
     }
-    if ('refresh_every_hours' in (patch || {})) scheduleAutoRefresh();
     return settings.redacted();
   });
   handle('settings:setSecret', ({ key, value }) => {

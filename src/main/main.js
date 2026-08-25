@@ -14,7 +14,6 @@ const applyBrowser = require('./apply-browser');
 const updater = require('./updater');
 
 let mainWindow = null;
-let refreshTimer = null;
 let refreshing = false;
 
 const isDev = process.argv.includes('--dev');
@@ -120,7 +119,9 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
-/** Shared by the button, the menu item, the launch check, and the timer. */
+/** Shared by the button, the menu item, and the once-a-day launch check.
+ *  Whatever the reason, a completed attempt counts as today's refresh, so the
+ *  launch check does not also fire straight after a manual one. */
 async function runRefresh(reason = 'manual') {
   if (refreshing) return { skipped: true, reason: 'already running' };
   refreshing = true;
@@ -138,15 +139,15 @@ async function runRefresh(reason = 'manual') {
     notify('refresh:error', { message: String(err.message) });
     throw err;
   } finally {
+    settings.set('refresh_last_date', todayLocal());
     refreshing = false;
   }
 }
 
-function scheduleAutoRefresh() {
-  if (refreshTimer) clearInterval(refreshTimer);
-  const hours = Number(settings.get('refresh_every_hours', 6));
-  if (!hours) return;
-  refreshTimer = setInterval(() => { runRefresh('timer').catch(() => {}); }, hours * 3600 * 1000);
+/** Local calendar day, so 'once today' means her day, not UTC's. */
+function todayLocal() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
 app.whenReady().then(() => {
@@ -162,15 +163,17 @@ app.whenReady().then(() => {
   }
 
   require('./ipc').register({ getMainWindow: () => mainWindow, runRefresh, isRefreshing: () => refreshing,
-    scheduleAutoRefresh, applyBrowser });
+    applyBrowser });
 
   buildMenu();
   createWindow();
-  scheduleAutoRefresh();
   updater.init(() => mainWindow);
 
-  // A quiet catch-up on launch, once the window is up and interactive.
-  if (settings.get('refresh_on_launch', true) && settings.get('onboarded', false)) {
+  // Once a day, the first time she opens the app — not on every open, and not
+  // on a background timer while it sits idle. Any refresh (this one, the
+  // button, the menu item) counts as 'done for today'; see runRefresh().
+  if (settings.get('refresh_on_launch', true) && settings.get('onboarded', false)
+      && settings.get('refresh_last_date', '') !== todayLocal()) {
     setTimeout(() => { runRefresh('launch').catch(() => {}); }, 2500);
   }
 
