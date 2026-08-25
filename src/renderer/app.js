@@ -1516,6 +1516,20 @@ VIEWS.settings = async function settingsView() {
       <label class="field" style="margin-top:var(--s3)"><span>JSearch (RapidAPI) key</span>
         <input type="password" id="s-jse-key" placeholder="${s.has_jsearch ? '•••• (saved)' : ''}" autocomplete="off"></label>
       <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-jse-save">Save the JSearch key</button>
+      <p class="small muted" style="margin-top:var(--s4)">Active Jobs DB aggregates postings straight from
+        companies' own applicant-tracking systems (Workday, SuccessFactors, Zoho and others) across
+        200,000+ career sites — a real, high-signal source and free. Search "Active Jobs DB" on
+        <a href="#" data-external="https://rapidapi.com/hub">rapidapi.com</a> to get a key.</p>
+      <label class="field" style="margin-top:var(--s3)"><span>Active Jobs DB (RapidAPI) key</span>
+        <input type="password" id="s-ajd-key" placeholder="${s.has_activejobsdb ? '•••• (saved)' : ''}" autocomplete="off"></label>
+      <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-ajd-save">Save the Active Jobs DB key</button>
+      <p class="small muted" style="margin-top:var(--s4)">Free Y Combinator Jobs API mirrors YC's own Work
+        at a Startup board — mostly outside India, but worth having on for the occasional remote role.
+        Free. Search "Free Y Combinator Jobs API" on
+        <a href="#" data-external="https://rapidapi.com/hub">rapidapi.com</a> to get a key.</p>
+      <label class="field" style="margin-top:var(--s3)"><span>Y Combinator Jobs (RapidAPI) key</span>
+        <input type="password" id="s-ycj-key" placeholder="${s.has_ycjobs ? '•••• (saved)' : ''}" autocomplete="off"></label>
+      <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-ycj-save">Save the Y Combinator key</button>
     </section>
 
     <section class="panel" style="grid-column:1/-1">
@@ -1763,6 +1777,26 @@ VIEWS.settings = async function settingsView() {
     try {
       await call(window.api.settings.setSecret, { key: 'jsearch', value: { api_key: key } });
       toast('JSearch key saved and the source switched on. Press "Find new jobs" to use it.');
+      go('settings');
+    } catch (err) { oops(err); }
+  });
+
+  $('#s-ajd-save').addEventListener('click', async () => {
+    const key = $('#s-ajd-key').value.trim();
+    if (!key) { toast('The Active Jobs DB API key is needed.', 'warn'); return; }
+    try {
+      await call(window.api.settings.setSecret, { key: 'activejobsdb', value: { api_key: key } });
+      toast('Active Jobs DB key saved and the source switched on. Press "Find new jobs" to use it.');
+      go('settings');
+    } catch (err) { oops(err); }
+  });
+
+  $('#s-ycj-save').addEventListener('click', async () => {
+    const key = $('#s-ycj-key').value.trim();
+    if (!key) { toast('The Y Combinator Jobs API key is needed.', 'warn'); return; }
+    try {
+      await call(window.api.settings.setSecret, { key: 'ycjobs', value: { api_key: key } });
+      toast('Y Combinator Jobs key saved and the source switched on. Press "Find new jobs" to use it.');
       go('settings');
     } catch (err) { oops(err); }
   });

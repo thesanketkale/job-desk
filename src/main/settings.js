@@ -31,7 +31,7 @@ const DEFAULTS = {
 
 // One key per provider, kept separately so switching back does not lose the other.
 const SECRET_KEYS = new Set(['anthropic_api_key', 'gemini_api_key', 'openrouter_api_key',
-  'smtp_password', 'adzuna', 'usajobs', 'jooble', 'jsearch']);
+  'smtp_password', 'adzuna', 'usajobs', 'jooble', 'jsearch', 'activejobsdb', 'ycjobs']);
 
 function get(key, fallback = undefined) {
   const row = db.get('SELECT v FROM settings WHERE k = ?', [key]);
@@ -97,6 +97,8 @@ function secrets() {
     usajobs: getSecret('usajobs', { email: '', api_key: '' }),
     jooble: getSecret('jooble', { api_key: '' }),
     jsearch: getSecret('jsearch', { api_key: '' }),
+    activejobsdb: getSecret('activejobsdb', { api_key: '' }),
+    ycjobs: getSecret('ycjobs', { api_key: '' }),
     smtp: {
       host: get('smtp_host', ''),
       port: Number(get('smtp_port', 465)),
@@ -126,6 +128,8 @@ function redacted() {
     has_adzuna: !!(getSecret('adzuna', {}).app_id),
     has_jooble: !!(getSecret('jooble', {}).api_key),
     has_jsearch: !!(getSecret('jsearch', {}).api_key),
+    has_activejobsdb: !!(getSecret('activejobsdb', {}).api_key),
+    has_ycjobs: !!(getSecret('ycjobs', {}).api_key),
     encryption_available: !!safeStorage?.isEncryptionAvailable(),
   };
 }

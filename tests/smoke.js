@@ -781,7 +781,7 @@ group('Making the CV files');
 
   group('Credentials the app will accept');
   const ipcSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'ipc.js'), 'utf8');
-  for (const k of ['adzuna', 'usajobs', 'jooble', 'jsearch']) {
+  for (const k of ['adzuna', 'usajobs', 'jooble', 'jsearch', 'activejobsdb', 'ycjobs']) {
     ok(`${k} is storable`, ipcSrc.includes(`'${k}'`) && !!settings.secrets()[k]);
   }
 
@@ -821,6 +821,38 @@ group('Making the CV files');
   ok('jsearch: it can be scored', typeof score.rate({
     title: js.title, description_text: normalize.text(js.description_html),
     work_mode: 'unknown', company: js.company }, kws, prefs).score === 'number');
+
+  const ajdFixture = JSON.parse(
+    fs.readFileSync(path.join(__dirname, 'fixtures', 'active-jobs-db-response.json'), 'utf8'));
+  const ajd = sources.mapActiveJobsDbJob(ajdFixture);
+  ok('active jobs db: a title survives', !!ajd.title);
+  ok('active jobs db: an apply link survives', /^https?:\/\//.test(ajd.apply_url));
+  ok('active jobs db: every field the pipeline needs exists',
+    ['external_id', 'title', 'company', 'location_raw', 'description_html', 'apply_url', 'posted_at']
+      .every((k) => k in ajd));
+  ok('active jobs db: the apply link points at the employer\'s own ATS, not a platform reseller',
+    ajd.apply_url.includes('zohorecruit.com'), ajd.apply_url);
+  ok('active jobs db: the location parses', typeof normalize.place(ajd.location_raw).country === 'string');
+  ok('active jobs db: it can be scored', typeof score.rate({
+    title: ajd.title, description_text: normalize.text(ajd.description_html),
+    work_mode: 'unknown', company: ajd.company }, kws, prefs).score === 'number');
+
+  const ycFixture = JSON.parse(
+    fs.readFileSync(path.join(__dirname, 'fixtures', 'yc-jobs-response.json'), 'utf8'));
+  const yc = sources.mapYcJob(ycFixture);
+  ok('yc jobs: a title survives', !!yc.title);
+  ok('yc jobs: an apply link survives', /^https?:\/\//.test(yc.apply_url));
+  ok('yc jobs: every field the pipeline needs exists',
+    ['external_id', 'title', 'company', 'location_raw', 'description_html', 'apply_url', 'posted_at']
+      .every((k) => k in yc));
+  ok('yc jobs: a missing description does not crash the pipeline',
+    yc.description_html === '' && typeof normalize.text(yc.description_html) === 'string');
+  ok('yc jobs: a real boolean remote flag is honoured',
+    yc.remote_flag === false, String(yc.remote_flag));
+  ok('yc jobs: the location parses', typeof normalize.place(yc.location_raw).country === 'string');
+  ok('yc jobs: it can be scored', typeof score.rate({
+    title: yc.title, description_text: normalize.text(yc.description_html),
+    work_mode: 'unknown', company: yc.company }, kws, prefs).score === 'number');
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   // Windows keeps an open SQLite file locked, so close it before removing the folder.

@@ -1,0 +1,84 @@
+{
+  "id": "2328915713",
+  "date_posted": "2026-08-25T05:15:01",
+  "date_created": "2026-08-25T09:29:33.060685",
+  "title": "Compliance Director",
+  "organization": "HitPay",
+  "organization_url": "https://www.hitpayapp.com",
+  "date_validthrough": null,
+  "locations_raw": [
+    {
+      "@type": "Place",
+      "address": {
+        "@type": "PostalAddress",
+        "addressLocality": "Singapore",
+        "addressRegion": null,
+        "addressCountry": "SG"
+      }
+    }
+  ],
+  "location_type": null,
+  "location_requirements_raw": null,
+  "salary_raw": {
+    "@type": "MonetaryAmount",
+    "currency": "USD",
+    "value": {
+      "@type": "QuantitativeValue",
+      "unitText": "YEAR",
+      "minValue": 10000,
+      "maxValue": 15000
+    }
+  },
+  "employment_type": [
+    "FULL_TIME"
+  ],
+  "url": "https://www.ycombinator.com/companies/hitpay/jobs/HrNr88g-compliance-director",
+  "source_type": "jobboard",
+  "source": "ycombinator",
+  "source_domain": "ycombinator.com",
+  "organization_logo": "https://bookface-images.s3.amazonaws.com/small_logos/e4b949ac3131bfb2ed68d424a5df1c9a1eea5c64.png",
+  "cities_derived": [
+    "Singapore"
+  ],
+  "counties_derived": null,
+  "regions_derived": null,
+  "countries_derived": [
+    "Singapore"
+  ],
+  "locations_derived": [
+    "Singapore, Singapore"
+  ],
+  "timezones_derived": [
+    "Asia/Singapore"
+  ],
+  "lats_derived": [
+    1.2899175
+  ],
+  "lngs_derived": [
+    103.8519072
+  ],
+  "remote_derived": false,
+  "recruiter_name": null,
+  "recruiter_title": null,
+  "recruiter_url": null,
+  "linkedin_org_employees": null,
+  "linkedin_org_url": null,
+  "linkedin_org_size": null,
+  "linkedin_org_slogan": null,
+  "linkedin_org_industry": null,
+  "linkedin_org_followers": null,
+  "linkedin_org_headquarters": null,
+  "linkedin_org_type": null,
+  "linkedin_org_foundeddate": null,
+  "linkedin_org_specialties": null,
+  "linkedin_org_locations": null,
+  "linkedin_org_description": null,
+  "linkedin_org_recruitment_agency_derived": null,
+  "seniority": null,
+  "directapply": null,
+  "linkedin_org_slug": null,
+  "no_jb_schema": null,
+  "external_apply_url": null,
+  "ats_duplicate": null,
+  "linkedin_id": null
+}

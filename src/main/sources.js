@@ -15,6 +15,8 @@ const TYPES = {
   usajobs:    'USAJOBS — US federal',
   jooble:     'Jooble — a second index of the same market',
   jsearch:    'JSearch — Google for Jobs, includes LinkedIn and Indeed listings',
+  activejobsdb: 'Active Jobs DB — real ATS postings aggregated across 200k+ career sites',
+  ycjobs:     'Free Y Combinator Jobs API — YC\'s own Work at a Startup board',
   greenhouse: 'Company board — Greenhouse',
   lever:      'Company board — Lever',
   ashby:      'Company board — Ashby',
@@ -335,6 +337,114 @@ async function jsearch({ secrets, queries, config = {}, rotation }) {
   return out;
 }
 
+/**
+ * Confirmed live against the real API (2026-08) and worth the trust: every
+ * sampled job carries `source_type: "ats"` (Workday, SuccessFactors, Zoho
+ * Recruit, Eightfold seen in practice) with `url` pointing straight at the
+ * employer's own careers portal — this aggregates public ATS postings across
+ * many boards the same way `greenhouse`/`lever`/`ashby`/`workable` above do
+ * one board at a time, just at scale. `org_linkedin_slug` is only a company
+ * lookup key for enrichment, not where the listing came from.
+ */
+function mapActiveJobsDbJob(j) {
+  const addr = j.locations?.[0]?.address;
+  const location = (j.locations_derived && j.locations_derived[0])
+    || (addr ? [addr.addressLocality, addr.addressRegion, addr.addressCountry].filter(Boolean).join(', ') : '');
+  const salary = typeof j.salary === 'string' ? j.salary
+    : j.ai_salary_min_value
+      ? `${j.ai_salary_currency || ''} ${j.ai_salary_min_value}–${j.ai_salary_max_value || j.ai_salary_min_value}`
+        .trim() + (j.ai_salary_unit_text ? ` / ${j.ai_salary_unit_text}` : '')
+      : '';
+  return row({
+    external_id: `activejobsdb:${j.id || ''}`,
+    title: j.title || '',
+    company: j.organization || '',
+    company_site: j.domain_derived ? `https://${j.domain_derived}` : '',
+    location_raw: location,
+    remote_flag: j.ai_work_arrangement === 'Remote' ? true : j.ai_work_arrangement === 'On-site' ? false : null,
+    employment_type: (j.employment_type || j.ai_employment_type || []).join(', '),
+    salary_text: salary,
+    description_html: j.description_text || '',
+    apply_url: j.url || '',
+    posted_at: j.date_posted || null,
+  });
+}
+
+async function activeJobsDb({ secrets, queries, config = {}, rotation }) {
+  const { api_key: key } = secrets.activejobsdb || {};
+  if (!key) throw new Error('Active Jobs DB key is not set — add it in Settings');
+  const location = config.location || 'India';
+  const timeFrame = config.time_frame || '7d';
+  const maxQueries = Math.max(1, Math.min(6, config.max_queries || 3));
+  const headers = { 'X-RapidAPI-Key': key, 'X-RapidAPI-Host': 'active-jobs-db.p.rapidapi.com' };
+  const out = [];
+
+  for (const q of budgetedQueries(queries, maxQueries, rotation)) {
+    const url = 'https://active-jobs-db.p.rapidapi.com/active-ats'
+      + `?time_frame=${encodeURIComponent(timeFrame)}&limit=50&offset=0&description_format=text`
+      + `&title=${encodeURIComponent(`"${q}"`)}&location=${encodeURIComponent(`"${location}"`)}`;
+    let jobs;
+    try {
+      jobs = await getJson(url, headers);
+    } catch (err) {
+      if (isQuotaError(err)) throw new Error('Active Jobs DB refused further requests (rate limit). Some roles may be missing from this run.');
+      continue;
+    }
+    for (const j of jobs || []) out.push(mapActiveJobsDbJob(j));
+  }
+  return out;
+}
+
+/**
+ * Confirmed live against the real API (2026-08): `source_type: "jobboard"`,
+ * `source: "ycombinator"`, `url` pointing at ycombinator.com's own listing —
+ * this is YC's own Work at a Startup board, not a scrape of anything. It
+ * carries no free-text description field at all (checked every key in a real
+ * response — there is no `description` or `description_text`), so
+ * `description_html` is deliberately left empty rather than guessed from
+ * company metadata that describes the employer, not the role.
+ */
+function mapYcJob(j) {
+  const v = j.salary_raw?.value;
+  const salary = v
+    ? `${j.salary_raw.currency || ''} ${v.minValue || ''}–${v.maxValue || v.minValue || ''}`.trim()
+      + (v.unitText ? ` / ${v.unitText}` : '')
+    : '';
+  return row({
+    external_id: `ycjobs:${j.id || ''}`,
+    title: j.title || '',
+    company: j.organization || '',
+    company_site: j.organization_url || '',
+    location_raw: (j.locations_derived && j.locations_derived[0]) || '',
+    remote_flag: typeof j.remote_derived === 'boolean' ? j.remote_derived : null,
+    employment_type: (j.employment_type || []).join(', '),
+    salary_text: salary,
+    description_html: '',
+    apply_url: j.external_apply_url || j.url || '',
+    posted_at: j.date_posted || null,
+  });
+}
+
+/**
+ * Free, unfiltered and small (one board, no query parameter at all) — every
+ * refresh reads the same handful of endpoints regardless of `queries`, so
+ * there is nothing to budget here.
+ */
+async function ycJobs({ secrets, config = {} }) {
+  const { api_key: key } = secrets.ycjobs || {};
+  if (!key) throw new Error('Free Y Combinator Jobs API key is not set — add it in Settings');
+  const window_ = config.window || '7d';
+  const headers = { 'X-RapidAPI-Key': key, 'X-RapidAPI-Host': 'free-y-combinator-jobs-api.p.rapidapi.com' };
+  let jobs;
+  try {
+    jobs = await getJson(`https://free-y-combinator-jobs-api.p.rapidapi.com/active-jb-${encodeURIComponent(window_)}`, headers);
+  } catch (err) {
+    if (isQuotaError(err)) throw new Error('Free Y Combinator Jobs API refused further requests (rate limit). Some roles may be missing from this run.');
+    return [];
+  }
+  return (jobs || []).map(mapYcJob);
+}
+
 /* ------------------------------------------------------------------ */
 /*  Company career boards — the highest-signal sources                 */
 /* ------------------------------------------------------------------ */
@@ -427,7 +537,11 @@ async function rss({ slug }) {
   }).filter((j) => j.title);
 }
 
-const ADAPTERS = { adzuna, remotive, remoteok, himalayas, arbeitnow, usajobs, jooble, jsearch, greenhouse, lever, ashby, workable, rss };
+const ADAPTERS = {
+  adzuna, remotive, remoteok, himalayas, arbeitnow, usajobs, jooble, jsearch,
+  activejobsdb: activeJobsDb, ycjobs: ycJobs,
+  greenhouse, lever, ashby, workable, rss,
+};
 
 /** @returns {{rows: object[], error: string|null}} — never throws. */
 async function fetchSource(source, queries, secrets, rotation = 0) {
@@ -454,4 +568,7 @@ async function probe(type, slug, secrets) {
   };
 }
 
-module.exports = { TYPES, fetchSource, probe, budgetedQueries, isQuotaError, mapJoobleJob, mapJSearchJob };
+module.exports = {
+  TYPES, fetchSource, probe, budgetedQueries, isQuotaError,
+  mapJoobleJob, mapJSearchJob, mapActiveJobsDbJob, mapYcJob,
+};

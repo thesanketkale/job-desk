@@ -24,6 +24,8 @@ const SOURCES = [
   // next refresh. ipc.js#settings:setSecret flips it on when the key is saved.
   ['jooble', 'Jooble — India', '', { location: 'India', pages: 3, max_queries: 4 }, 0],
   ['jsearch', 'JSearch — India', '', { location: 'India', country: 'in', num_pages: 1, max_queries: 2 }, 0],
+  ['activejobsdb', 'Active Jobs DB — India', '', { location: 'India', time_frame: '7d', max_queries: 3 }, 0],
+  ['ycjobs', 'Free Y Combinator Jobs API', '', { window: '7d' }, 0],
 ];
 
 /** Offered in the app as one-click "test and add". Not enabled by default. */

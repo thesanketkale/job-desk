@@ -127,6 +127,27 @@ live — `job_publisher: "LinkedIn"` reached via a `google.com/search` link in
 the response, not a direct crawl of linkedin.com), which is why it survived
 this same review and the others didn't.
 
+**A RapidAPI listing's name and description are marketing, not proof — check
+what a live call actually returns before judging it on ToS grounds or
+usefulness.** "Google Jobs API" sounds like a JSearch-style Google for Jobs
+reseller; a real call returns generic web search results (Reddit threads,
+relocation-advice blog posts) with `"company": "Reddit"` on a "job" —
+rejected for not being job data at all, nothing to do with terms of service.
+"faang.watch API"'s documented endpoints return its own marketing website's
+HTML on every path tried, not JSON — rejected as broken, regardless of what
+it claims to do. Conversely, "Active Jobs DB" shares a provider
+("Fantastic.jobs") with the already-rejected "LinkedIn Job Search API", which
+is a reason to check it carefully, not to reject it by association: a live
+call shows every sampled job carrying `source_type: "ats"` (Workday,
+SuccessFactors, Zoho Recruit, Eightfold observed) with the apply URL pointing
+straight at the employer's own careers portal — the same category as the
+`greenhouse`/`lever`/`ashby`/`workable` adapters above, just aggregated
+across many boards at once. Added alongside "Free Y Combinator Jobs API"
+(YC's own Work at a Startup board, `source_type: "jobboard"`, `source:
+"ycombinator"`) — which carries no free-text description field in any
+observed response, so `mapYcJob` leaves `description_html` empty rather than
+substituting company-level metadata that describes the employer, not the role.
+
 **The app works with no API key.** `templates.js` is the free path; `applier.prepare()`
 branches on `ai.available()` and both branches return the same shape. Any new
 feature that only works with a key needs a template fallback or a clear reason.

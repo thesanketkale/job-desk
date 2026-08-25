@@ -236,7 +236,8 @@ function register(ctx) {
   });
   handle('settings:setSecret', ({ key, value }) => {
     if (!['anthropic_api_key', 'gemini_api_key', 'openrouter_api_key',
-      'smtp_password', 'adzuna', 'usajobs', 'jooble', 'jsearch'].includes(key)) {
+      'smtp_password', 'adzuna', 'usajobs', 'jooble', 'jsearch',
+      'activejobsdb', 'ycjobs'].includes(key)) {
       throw new Error('Unknown credential.');
     }
     settings.setSecret(key, value);
@@ -244,7 +245,9 @@ function register(ctx) {
     // active: 0 because a source with no key would fail loudly on the very
     // next refresh. Flip it on the moment its key is first saved, so saving
     // a key is the only step, not saving-then-remembering-the-Sources-page.
-    const SOURCE_FOR_SECRET = { jooble: 'jooble', jsearch: 'jsearch' };
+    const SOURCE_FOR_SECRET = {
+      jooble: 'jooble', jsearch: 'jsearch', activejobsdb: 'activejobsdb', ycjobs: 'ycjobs',
+    };
     if (SOURCE_FOR_SECRET[key] && value && Object.values(value).some(Boolean)) {
       db.run('UPDATE sources SET active = 1 WHERE type = ?', [SOURCE_FOR_SECRET[key]]);
     }
