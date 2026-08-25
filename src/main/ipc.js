@@ -236,10 +236,18 @@ function register(ctx) {
   });
   handle('settings:setSecret', ({ key, value }) => {
     if (!['anthropic_api_key', 'gemini_api_key', 'openrouter_api_key',
-      'smtp_password', 'adzuna', 'usajobs'].includes(key)) {
+      'smtp_password', 'adzuna', 'usajobs', 'jooble', 'jsearch'].includes(key)) {
       throw new Error('Unknown credential.');
     }
     settings.setSecret(key, value);
+    // Sources added after first install (see seed.js#seedNewSources) ship
+    // active: 0 because a source with no key would fail loudly on the very
+    // next refresh. Flip it on the moment its key is first saved, so saving
+    // a key is the only step, not saving-then-remembering-the-Sources-page.
+    const SOURCE_FOR_SECRET = { jooble: 'jooble', jsearch: 'jsearch' };
+    if (SOURCE_FOR_SECRET[key] && value && Object.values(value).some(Boolean)) {
+      db.run('UPDATE sources SET active = 1 WHERE type = ?', [SOURCE_FOR_SECRET[key]]);
+    }
     return settings.redacted();
   });
   handle('settings:testMail', () => mailer.verify());

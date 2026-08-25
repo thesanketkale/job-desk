@@ -3,12 +3,11 @@
  * Dumps one raw response from a job API so an adapter can be written against
  * what the service actually returns rather than what its documentation says.
  *
- *   node scripts/probe-source.mjs careerjet YOUR_KEY
- *   node scripts/probe-source.mjs jooble    YOUR_KEY
- *   node scripts/probe-source.mjs jsearch   YOUR_RAPIDAPI_KEY
+ *   node scripts/probe-source.mjs jooble  YOUR_KEY
+ *   node scripts/probe-source.mjs jsearch YOUR_RAPIDAPI_KEY
  */
 const [, , which, key] = process.argv;
-if (!which || !key) { console.error('usage: node scripts/probe-source.mjs <careerjet|jooble|jsearch> <key>'); process.exit(1); }
+if (!which || !key) { console.error('usage: node scripts/probe-source.mjs <jooble|jsearch> <key>'); process.exit(1); }
 
 const show = (label, data) => {
   console.log(`\n--- ${label} ---`);
@@ -18,16 +17,6 @@ const show = (label, data) => {
 };
 
 const run = async () => {
-  if (which === 'careerjet') {
-    const url = 'https://search.api.careerjet.net/v4/query'
-      + '?locale_code=en_IN&keywords=' + encodeURIComponent('counselling psychologist')
-      + '&location=India&page=1&page_size=5&user_ip=127.0.0.1&user_agent=JobDesk';
-    const res = await fetch(url, { headers: { Authorization: 'Basic ' + Buffer.from(key + ':').toString('base64') } });
-    console.log('HTTP', res.status);
-    const d = await res.json();
-    console.log('top-level keys:', Object.keys(d));
-    show('first job', d.jobs);
-  }
   if (which === 'jooble') {
     const res = await fetch('https://jooble.org/api/' + encodeURIComponent(key), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },

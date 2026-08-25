@@ -13,6 +13,8 @@ const TYPES = {
   himalayas:  'Himalayas — remote roles',
   arbeitnow:  'Arbeitnow — EU/UK feed',
   usajobs:    'USAJOBS — US federal',
+  jooble:     'Jooble — a second index of the same market',
+  jsearch:    'JSearch — Google for Jobs, includes LinkedIn and Indeed listings',
   greenhouse: 'Company board — Greenhouse',
   lever:      'Company board — Lever',
   ashby:      'Company board — Ashby',
@@ -219,6 +221,120 @@ async function usajobs({ secrets, queries, config = {}, rotation }) {
   return out;
 }
 
+/**
+ * Confirmed live against the real API (2026-08): `{ totalCount, jobs: [{ id,
+ * title, location, snippet, salary, source, type, link, company, updated }] }`.
+ * `id` is a bare JSON number outside Number.MAX_SAFE_INTEGER — parsing it loses
+ * precision (a real id observed as `...378831` came back `...379000`), and
+ * `fingerprint()` keys on `external_id` before it ever looks at the URL, so a
+ * rounded id could silently collide two different Jooble jobs from the same
+ * company. The digits in `link`'s `/jdp/<id>` path never went through
+ * JSON.parse as a number, so the id is pulled from there instead — the id
+ * only, not the tracking query string real list responses append after it
+ * (`?ckey=...&bscr=32.484474`), which trailing-digit matching would grab by
+ * mistake since a JSON.parse of a single fixture job has no query string to
+ * catch that.
+ */
+function mapJoobleJob(j) {
+  const linkId = (String(j.link || '').match(/\/jdp\/(-?\d+)/) || [])[1];
+  return row({
+    external_id: `jooble:${linkId || j.id || ''}`,
+    title: j.title || '',
+    company: j.company || '',
+    location_raw: j.location || '',
+    employment_type: j.type || '',
+    salary_text: String(j.salary || '').trim(),
+    description_html: j.snippet || '',
+    apply_url: j.link || '',
+    posted_at: j.updated || null,
+  });
+}
+
+async function jooble({ secrets, queries, config = {}, rotation }) {
+  const { api_key: key } = secrets.jooble || {};
+  if (!key) throw new Error('Jooble key is not set — add it in Settings');
+  const location = config.location || 'India';
+  const pages = Math.max(1, Math.min(5, config.pages || 3));
+  const maxQueries = Math.max(1, Math.min(6, config.max_queries || 4));
+  const out = [];
+
+  for (const q of budgetedQueries(queries, maxQueries, rotation)) {
+    for (let p = 1; p <= pages; p++) {
+      const r = await request(`https://jooble.org/api/${encodeURIComponent(key)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ keywords: q, location, page: String(p) }),
+      });
+      if (!r.ok) {
+        if (r.status === 429 || r.status === 403) {
+          throw new Error('Jooble refused further requests (rate limit). Some roles may be missing from this run.');
+        }
+        break;
+      }
+      let d;
+      try { d = JSON.parse(r.text); } catch { break; }
+      const jobs = d.jobs || [];
+      if (!jobs.length) break;
+      for (const j of jobs) out.push(mapJoobleJob(j));
+    }
+  }
+  return out;
+}
+
+/**
+ * Confirmed live against the real API (2026-08). The plan this was built from
+ * assumed `GET /search` returning `{ data: [...] }` per JSearch's own
+ * documentation — the real, currently-subscribed endpoint is `/search-v2`,
+ * and it nests one level deeper: `{ data: { jobs: [...] } }`. `/search` still
+ * responds, but with a 404 naming the endpoint, not the "not subscribed"
+ * error an unsubscribed host gives — this cost real requests to find, so it
+ * is worth writing down: `/search` is stale, not a subscription problem.
+ * Field names otherwise matched the plan's documentation.
+ */
+function mapJSearchJob(j) {
+  const salary = j.job_salary_string
+    || (j.job_min_salary ? `${j.job_salary_period || ''} ${j.job_min_salary}–${j.job_max_salary || j.job_min_salary}`.trim() : '');
+  return row({
+    external_id: `jsearch:${j.job_id || ''}`,
+    title: j.job_title || '',
+    company: j.employer_name || '',
+    company_site: j.employer_website || '',
+    location_raw: j.job_location || [j.job_city, j.job_state, j.job_country].filter(Boolean).join(', '),
+    remote_flag: typeof j.job_is_remote === 'boolean' ? j.job_is_remote : null,
+    employment_type: j.job_employment_type || '',
+    salary_text: salary,
+    description_html: j.job_description || '',
+    apply_url: j.job_apply_link || '',
+    posted_at: j.job_posted_at_datetime_utc || null,
+  });
+}
+
+async function jsearch({ secrets, queries, config = {}, rotation }) {
+  const { api_key: key } = secrets.jsearch || {};
+  if (!key) throw new Error('JSearch key is not set — add it in Settings');
+  const location = config.location || 'India';
+  const country = config.country || 'in';
+  const numPages = Math.max(1, Math.min(3, config.num_pages || 1));
+  const maxQueries = Math.max(1, Math.min(6, config.max_queries || 2));
+  const headers = { 'X-RapidAPI-Key': key, 'X-RapidAPI-Host': 'jsearch.p.rapidapi.com' };
+  const out = [];
+
+  for (const q of budgetedQueries(queries, maxQueries, rotation)) {
+    const url = 'https://jsearch.p.rapidapi.com/search-v2'
+      + `?query=${encodeURIComponent(`${q} in ${location}`)}`
+      + `&page=1&num_pages=${numPages}&country=${encodeURIComponent(country)}&date_posted=month`;
+    let d;
+    try {
+      d = await getJson(url, headers);
+    } catch (err) {
+      if (isQuotaError(err)) throw new Error('JSearch refused further requests (rate limit). Some roles may be missing from this run.');
+      continue;
+    }
+    for (const j of d.data?.jobs || []) out.push(mapJSearchJob(j));
+  }
+  return out;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Company career boards — the highest-signal sources                 */
 /* ------------------------------------------------------------------ */
@@ -311,7 +427,7 @@ async function rss({ slug }) {
   }).filter((j) => j.title);
 }
 
-const ADAPTERS = { adzuna, remotive, remoteok, himalayas, arbeitnow, usajobs, greenhouse, lever, ashby, workable, rss };
+const ADAPTERS = { adzuna, remotive, remoteok, himalayas, arbeitnow, usajobs, jooble, jsearch, greenhouse, lever, ashby, workable, rss };
 
 /** @returns {{rows: object[], error: string|null}} — never throws. */
 async function fetchSource(source, queries, secrets, rotation = 0) {
@@ -338,4 +454,4 @@ async function probe(type, slug, secrets) {
   };
 }
 
-module.exports = { TYPES, fetchSource, probe, budgetedQueries, isQuotaError };
+module.exports = { TYPES, fetchSource, probe, budgetedQueries, isQuotaError, mapJoobleJob, mapJSearchJob };

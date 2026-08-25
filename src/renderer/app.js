@@ -1503,6 +1503,19 @@ VIEWS.settings = async function settingsView() {
           <input type="password" id="s-adz-key" placeholder="${s.has_adzuna ? '•••• (saved)' : ''}" autocomplete="off"></label>
       </div>
       <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-adz-save">Save the Adzuna keys</button>
+      <p class="small muted" style="margin-top:var(--s4)">Jooble is a second, free index of the same Indian
+        market — a different set of boards to Adzuna's, so it fills in what Adzuna misses.
+        Sign up at <a href="#" data-external="https://jooble.org/api/about">jooble.org/api/about</a>.</p>
+      <label class="field" style="margin-top:var(--s3)"><span>Jooble API key</span>
+        <input type="password" id="s-joo-key" placeholder="${s.has_jooble ? '•••• (saved)' : ''}" autocomplete="off"></label>
+      <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-joo-save">Save the Jooble key</button>
+      <p class="small muted" style="margin-top:var(--s4)">JSearch resells Google for Jobs, whose index
+        includes postings that originate on LinkedIn and Indeed — this is the licensed route to those
+        listings; crawling those sites directly is not, and both forbid it. Its free tier is small, so it
+        is used sparingly. Sign up at <a href="#" data-external="https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch">rapidapi.com</a>.</p>
+      <label class="field" style="margin-top:var(--s3)"><span>JSearch (RapidAPI) key</span>
+        <input type="password" id="s-jse-key" placeholder="${s.has_jsearch ? '•••• (saved)' : ''}" autocomplete="off"></label>
+      <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-jse-save">Save the JSearch key</button>
     </section>
 
     <section class="panel" style="grid-column:1/-1">
@@ -1730,6 +1743,26 @@ VIEWS.settings = async function settingsView() {
     try {
       await call(window.api.settings.setSecret, { key: 'adzuna', value: { app_id: id, app_key: key } });
       toast('Adzuna keys saved. Press "Find new jobs" to use them.');
+      go('settings');
+    } catch (err) { oops(err); }
+  });
+
+  $('#s-joo-save').addEventListener('click', async () => {
+    const key = $('#s-joo-key').value.trim();
+    if (!key) { toast('The Jooble API key is needed.', 'warn'); return; }
+    try {
+      await call(window.api.settings.setSecret, { key: 'jooble', value: { api_key: key } });
+      toast('Jooble key saved and the source switched on. Press "Find new jobs" to use it.');
+      go('settings');
+    } catch (err) { oops(err); }
+  });
+
+  $('#s-jse-save').addEventListener('click', async () => {
+    const key = $('#s-jse-key').value.trim();
+    if (!key) { toast('The JSearch API key is needed.', 'warn'); return; }
+    try {
+      await call(window.api.settings.setSecret, { key: 'jsearch', value: { api_key: key } });
+      toast('JSearch key saved and the source switched on. Press "Find new jobs" to use it.');
       go('settings');
     } catch (err) { oops(err); }
   });

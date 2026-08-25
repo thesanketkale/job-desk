@@ -765,7 +765,8 @@ group('Making the CV files');
 
   /* ------------------------------------------------------------- sources -- */
   group('Spending API quota carefully');
-  const { budgetedQueries } = require('../src/main/sources');
+  const sources = require('../src/main/sources');
+  const { budgetedQueries } = sources;
   const qs = ['a', 'b', 'c', 'd', 'e'];
   ok('a short list is untouched', budgetedQueries(['a', 'b'], 3, 0).length === 2);
   ok('a long list is trimmed', budgetedQueries(qs, 3, 0).length === 3);
@@ -777,6 +778,49 @@ group('Making the CV files');
     return seen.size === qs.length;
   })());
   ok('a negative seed does not crash', budgetedQueries(qs, 2, -3).length === 2);
+
+  group('Credentials the app will accept');
+  const ipcSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'ipc.js'), 'utf8');
+  for (const k of ['adzuna', 'usajobs', 'jooble', 'jsearch']) {
+    ok(`${k} is storable`, ipcSrc.includes(`'${k}'`) && !!settings.secrets()[k]);
+  }
+
+  group('Reading the new job feeds');
+  // JSON.parse already rounded the fixture's .id the same way the real adapter's
+  // JSON.parse would — this is genuinely what mapJoobleJob receives at runtime.
+  const joobleFixture = JSON.parse(
+    fs.readFileSync(path.join(__dirname, 'fixtures', 'jooble-response.json'), 'utf8'));
+  const jj = sources.mapJoobleJob(joobleFixture);
+  ok('jooble: a title survives', !!jj.title);
+  ok('jooble: an apply link survives', /^https?:\/\//.test(jj.apply_url));
+  ok('jooble: every field the pipeline needs exists',
+    ['external_id', 'title', 'company', 'location_raw', 'description_html', 'apply_url', 'posted_at']
+      .every((k) => k in jj));
+  ok('jooble: the external id keeps the link\'s full precision, not the rounded JSON number',
+    jj.external_id.includes('3005239523946378831'), jj.external_id);
+  ok('jooble: it does not carry the rounded numeric id instead',
+    !jj.external_id.includes('3005239523946379000'), jj.external_id);
+
+  ok('jooble: the location parses', typeof normalize.place(jj.location_raw).country === 'string');
+  ok('jooble: it can be scored', typeof score.rate({
+    title: jj.title, description_text: normalize.text(jj.description_html),
+    work_mode: 'unknown', company: jj.company }, kws, prefs).score === 'number');
+
+  const jsearchFixture = JSON.parse(
+    fs.readFileSync(path.join(__dirname, 'fixtures', 'jsearch-response.json'), 'utf8'));
+  const js = sources.mapJSearchJob(jsearchFixture);
+  ok('jsearch: a title survives', !!js.title);
+  ok('jsearch: an apply link survives', /^https?:\/\//.test(js.apply_url));
+  ok('jsearch: every field the pipeline needs exists',
+    ['external_id', 'title', 'company', 'location_raw', 'description_html', 'apply_url', 'posted_at']
+      .every((k) => k in js));
+  ok('jsearch: a real boolean remote flag is honoured, not coerced from a truthy string',
+    js.remote_flag === false, String(js.remote_flag));
+
+  ok('jsearch: the location parses', typeof normalize.place(js.location_raw).country === 'string');
+  ok('jsearch: it can be scored', typeof score.rate({
+    title: js.title, description_text: normalize.text(js.description_html),
+    work_mode: 'unknown', company: js.company }, kws, prefs).score === 'number');
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   // Windows keeps an open SQLite file locked, so close it before removing the folder.

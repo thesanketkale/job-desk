@@ -20,6 +20,10 @@ const SOURCES = [
   ['greenhouse', 'Anthropic', 'anthropic', {}, 1],
   ['greenhouse', 'Scale AI', 'scaleai', {}, 1],
   ['ashby', 'OpenAI', 'openai', {}, 1],
+  // active: 0 — a source with no key would otherwise fail loudly on the very
+  // next refresh. ipc.js#settings:setSecret flips it on when the key is saved.
+  ['jooble', 'Jooble — India', '', { location: 'India', pages: 3, max_queries: 4 }, 0],
+  ['jsearch', 'JSearch — India', '', { location: 'India', country: 'in', num_pages: 1, max_queries: 2 }, 0],
 ];
 
 /** Offered in the app as one-click "test and add". Not enabled by default. */
@@ -47,11 +51,25 @@ function seedIfEmpty() {
       db.insert('sources', { type, label, slug, config: JSON.stringify(config), active });
     }
   }
+  seedNewSources();
   settings.set('suggested_boards', SUGGESTED);
   for (const [k, v] of Object.entries(settings.DEFAULTS)) {
     if (db.get('SELECT 1 AS x FROM settings WHERE k = ?', [k]) === null) settings.set(k, v);
   }
   seedMailboxFromCv();
+}
+
+/**
+ * Adds sources introduced after an install was first set up. seedIfEmpty()'s
+ * bulk insert above only fires once, on a genuinely empty table, so an
+ * existing install would never see a source added to SOURCES later without
+ * this running every launch to top it up.
+ */
+function seedNewSources() {
+  for (const [type, label, slug, config, active] of SOURCES) {
+    if (db.get('SELECT 1 AS x FROM sources WHERE type = ? AND slug = ?', [type, slug])) continue;
+    db.insert('sources', { type, label, slug, config: JSON.stringify(config), active });
+  }
 }
 
 /**
@@ -73,4 +91,4 @@ function seedMailboxFromCv() {
   settings.set('smtp_from_name', cv.name || '');
 }
 
-module.exports = { seedIfEmpty, seedMailboxFromCv, SUGGESTED };
+module.exports = { seedIfEmpty, seedNewSources, seedMailboxFromCv, SUGGESTED };

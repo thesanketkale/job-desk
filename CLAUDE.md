@@ -90,6 +90,43 @@ re-thrown as an explicit, friendly error (e.g. "Adzuna refused further
 requests (rate limit)."), the latter still just breaks the pagination loop.
 Any new metered adapter needs both.
 
+**A job-source API's documentation is a starting point, not the contract —
+probe it live before trusting a field name or an endpoint path.** Careerjet
+was dropped entirely: its dashboard requires whitelisting the server's IP,
+which no ordinary install of a distributed desktop app can satisfy. Jooble's
+`jobs[].id` is a bare JSON number outside `Number.MAX_SAFE_INTEGER` —
+`JSON.parse` rounds it (a real id observed as `...378831` came back
+`...379000`) — and `fingerprint()` keys dedup on `external_id` before it ever
+looks at the URL, so `mapJoobleJob` pulls the id from the `/jdp/<id>` path in
+`link` instead, which never goes through numeric parsing; a naive
+trailing-digits regex on `link` is not enough on its own, because real list
+responses append a tracking query string after the id (`?ckey=...&bscr=32.…`)
+that a clean single-job fixture will not have, so the id must come from
+inside the `/jdp/` path specifically. JSearch's plan-documented `GET /search`
+returning `{data: [...]}` is stale: the currently-subscribed endpoint is
+`/search-v2`, nested one level deeper as `{data: {jobs: [...]}}` — and
+RapidAPI's 404 for a genuinely wrong path (`"Endpoint '/search' does not
+exist"`) looks nothing like its 403 for an unsubscribed key (`"You are not
+subscribed to this API"`), which is how to tell the two apart without
+guessing. Both were caught by running the adapter through `fetchSource` end
+to end against a live key, not by unit-testing the mapper against an
+isolated fixture alone — do both before trusting a new adapter.
+
+**RapidAPI job listings that resell LinkedIn, Naukri, Indeed or Glassdoor data
+are scrapers with a paid middleman, not a licensed feed — do not add them.**
+Evaluated and rejected: "LinkedIn Job Search API", "Indeed", "Glassdoor
+Real-Time", a "Jobs API" with Bing/Indeed/LinkedIn sub-endpoints, and a
+"JOBS SEARCH API" whose own params list `site_name:
+[indeed, linkedin, zip_recruiter, glassdoor, naukri, bayt]`. A RapidAPI
+reseller doing the scraping instead of this app doesn't change that the
+underlying site's terms get violated, and it adds a second account (this
+app's RapidAPI account) that can be banned for it. JSearch is the one
+exception already in this codebase, and the distinction is real, not just
+convenient: it resells Google for Jobs' own structured job data (confirmed
+live — `job_publisher: "LinkedIn"` reached via a `google.com/search` link in
+the response, not a direct crawl of linkedin.com), which is why it survived
+this same review and the others didn't.
+
 **The app works with no API key.** `templates.js` is the free path; `applier.prepare()`
 branches on `ai.available()` and both branches return the same shape. Any new
 feature that only works with a key needs a template fallback or a clear reason.
