@@ -28,25 +28,51 @@ const row = (r) => ({
 
 const pretty = (slug) => slug.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()).trim();
 
+/**
+ * Free job APIs are metered per call, and this app multiplies keywords by
+ * countries by pages. Left unbounded a single refresh can spend a month's
+ * quota. Each adapter takes a slice of the keyword list and the slice moves on
+ * every refresh, so over a day every keyword is still used — just not all at
+ * once.
+ */
+function budgetedQueries(queries, max, rotationSeed) {
+  if (!Array.isArray(queries) || queries.length <= max) return queries || [];
+  const start = (rotationSeed % queries.length + queries.length) % queries.length;
+  const out = [];
+  for (let i = 0; i < max; i++) out.push(queries[(start + i) % queries.length]);
+  return out;
+}
+
+/** Distinguishes "no more results" from "the API refused us". */
+function isQuotaError(err) {
+  return /\b429\b|rate.?limit|quota|too many requests|forbidden|\b403\b/i.test(String(err && err.message));
+}
+
 /* ------------------------------------------------------------------ */
 /*  Aggregators                                                        */
 /* ------------------------------------------------------------------ */
 
-async function adzuna({ config, secrets, queries }) {
+async function adzuna({ config, secrets, queries, rotation }) {
   const { app_id: id, app_key: key } = secrets.adzuna || {};
   if (!id || !key) throw new Error('Adzuna keys are not set — add them in Settings');
-  const countries = config.countries || ['in', 'gb', 'us'];
+  const countries = config.countries || ['in'];
   const pages = Math.max(1, Math.min(5, config.pages || 2));
+  const maxQueries = Math.max(1, Math.min(6, config.max_queries || 3));
   const out = [];
 
   for (const cc of countries) {
-    for (const q of queries) {
+    for (const q of budgetedQueries(queries, maxQueries, rotation)) {
       for (let p = 1; p <= pages; p++) {
         const url = `https://api.adzuna.com/v1/api/jobs/${encodeURIComponent(cc)}/search/${p}`
           + `?app_id=${encodeURIComponent(id)}&app_key=${encodeURIComponent(key)}`
           + `&results_per_page=50&what=${encodeURIComponent(q)}&content-type=application/json&sort_by=date`;
         let d;
-        try { d = await getJson(url); } catch { break; }
+        try {
+          d = await getJson(url);
+        } catch (err) {
+          if (isQuotaError(err)) throw new Error('Adzuna refused further requests (rate limit). Some roles may be missing from this run.');
+          break;
+        }
         const results = d.results || [];
         if (!results.length) break;
         for (const j of results) {
@@ -73,12 +99,17 @@ async function adzuna({ config, secrets, queries }) {
   return out;
 }
 
-async function remotive({ queries }) {
+async function remotive({ queries, config = {}, rotation }) {
   const out = [];
-  for (const q of queries) {
+  const maxQueries = Math.max(1, Math.min(6, config.max_queries || 4));
+  for (const q of budgetedQueries(queries, maxQueries, rotation)) {
     let d;
-    try { d = await getJson(`https://remotive.com/api/remote-jobs?limit=100&search=${encodeURIComponent(q)}`); }
-    catch { continue; }
+    try {
+      d = await getJson(`https://remotive.com/api/remote-jobs?limit=100&search=${encodeURIComponent(q)}`);
+    } catch (err) {
+      if (isQuotaError(err)) throw new Error('Remotive refused further requests (rate limit). Some roles may be missing from this run.');
+      continue;
+    }
     for (const j of d.jobs || []) {
       out.push(row({
         external_id: `remotive:${j.id}`,
@@ -112,7 +143,12 @@ async function arbeitnow() {
   const out = [];
   for (let p = 1; p <= 3; p++) {
     let d;
-    try { d = await getJson(`https://www.arbeitnow.com/api/job-board-api?page=${p}`); } catch { break; }
+    try {
+      d = await getJson(`https://www.arbeitnow.com/api/job-board-api?page=${p}`);
+    } catch (err) {
+      if (isQuotaError(err)) throw new Error('Arbeitnow refused further requests (rate limit). Some roles may be missing from this run.');
+      break;
+    }
     if (!d.data?.length) break;
     for (const j of d.data) {
       out.push(row({
@@ -132,7 +168,12 @@ async function himalayas() {
   const out = [];
   for (let off = 0; off < 300; off += 100) {
     let d;
-    try { d = await getJson(`https://himalayas.app/jobs/api?limit=100&offset=${off}`); } catch { break; }
+    try {
+      d = await getJson(`https://himalayas.app/jobs/api?limit=100&offset=${off}`);
+    } catch (err) {
+      if (isQuotaError(err)) throw new Error('Himalayas refused further requests (rate limit). Some roles may be missing from this run.');
+      break;
+    }
     if (!d.jobs?.length) break;
     for (const j of d.jobs) {
       out.push(row({
@@ -149,16 +190,20 @@ async function himalayas() {
   return out;
 }
 
-async function usajobs({ secrets, queries }) {
+async function usajobs({ secrets, queries, config = {}, rotation }) {
   const { email, api_key: key } = secrets.usajobs || {};
   if (!email || !key) throw new Error('USAJOBS credentials are not set');
   const out = [];
-  for (const q of queries) {
+  const maxQueries = Math.max(1, Math.min(6, config.max_queries || 4));
+  for (const q of budgetedQueries(queries, maxQueries, rotation)) {
     let d;
     try {
       d = await getJson(`https://data.usajobs.gov/api/search?ResultsPerPage=50&Keyword=${encodeURIComponent(q)}`,
         { Host: 'data.usajobs.gov', 'User-Agent': email, 'Authorization-Key': key });
-    } catch { continue; }
+    } catch (err) {
+      if (isQuotaError(err)) throw new Error('USAJOBS refused further requests (rate limit). Some roles may be missing from this run.');
+      continue;
+    }
     for (const item of d.SearchResult?.SearchResultItems || []) {
       const j = item.MatchedObjectDescriptor || {};
       out.push(row({
@@ -269,13 +314,13 @@ async function rss({ slug }) {
 const ADAPTERS = { adzuna, remotive, remoteok, himalayas, arbeitnow, usajobs, greenhouse, lever, ashby, workable, rss };
 
 /** @returns {{rows: object[], error: string|null}} — never throws. */
-async function fetchSource(source, queries, secrets) {
+async function fetchSource(source, queries, secrets, rotation = 0) {
   const adapter = ADAPTERS[source.type];
   if (!adapter) return { rows: [], error: `Unknown source type: ${source.type}` };
   let config = {};
   try { config = JSON.parse(source.config || '{}'); } catch { /* keep {} */ }
   try {
-    const rows = await adapter({ slug: (source.slug || '').trim(), config, secrets, queries });
+    const rows = await adapter({ slug: (source.slug || '').trim(), config, secrets, queries, rotation });
     return { rows, error: null };
   } catch (err) {
     return { rows: [], error: String(err.message || err).slice(0, 400) };
@@ -284,7 +329,7 @@ async function fetchSource(source, queries, secrets) {
 
 /** Used by the Test button so a wrong board name is caught before it is saved. */
 async function probe(type, slug, secrets) {
-  const r = await fetchSource({ type, slug, config: '{}' }, ['counsellor'], secrets || {});
+  const r = await fetchSource({ type, slug, config: '{}' }, ['counsellor'], secrets || {}, 0);
   return {
     ok: r.error === null,
     count: r.rows.length,
@@ -293,4 +338,4 @@ async function probe(type, slug, secrets) {
   };
 }
 
-module.exports = { TYPES, fetchSource, probe };
+module.exports = { TYPES, fetchSource, probe, budgetedQueries, isQuotaError };

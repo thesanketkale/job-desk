@@ -12,7 +12,7 @@ const db = require('./db');
 const settings = require('./settings');
 
 const SOURCES = [
-  ['adzuna', 'Adzuna — India, UK, US, SG, AU, CA', '', { countries: ['in', 'gb', 'us', 'sg', 'au', 'ca'], pages: 2 }, 1],
+  ['adzuna', 'Adzuna — India', '', { countries: ['in'], pages: 2, max_queries: 3 }, 1],
   ['remotive', 'Remotive — remote roles', '', {}, 1],
   ['remoteok', 'RemoteOK — remote roles', '', {}, 1],
   ['himalayas', 'Himalayas — remote roles', '', {}, 1],

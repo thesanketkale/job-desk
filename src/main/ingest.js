@@ -25,6 +25,7 @@ async function runAll({ sourceId = null, onProgress = () => {} } = {}) {
     ? db.all('SELECT * FROM sources WHERE id = ?', [sourceId])
     : db.all('SELECT * FROM sources WHERE active = 1 ORDER BY id');
 
+  const rotation = Number(settings.get('fetch_rotation', 0));
   const summary = { sources: 0, found: 0, inserted: 0, updated: 0, errors: [] };
 
   for (let i = 0; i < sources.length; i++) {
@@ -32,7 +33,7 @@ async function runAll({ sourceId = null, onProgress = () => {} } = {}) {
     onProgress({ index: i, total: sources.length, label: src.label });
 
     const started = Date.now();
-    const { rows, error } = await fetchSource(src, queries, secrets);
+    const { rows, error } = await fetchSource(src, queries, secrets, rotation);
     let inserted = 0;
     let updated = 0;
 
@@ -62,6 +63,7 @@ async function runAll({ sourceId = null, onProgress = () => {} } = {}) {
   }
 
   prune();
+  settings.set('fetch_rotation', rotation + 1);
   settings.set('last_refresh_at', new Date().toISOString());
   db.logActivity('refresh', `${summary.inserted} new, ${summary.updated} updated, from ${summary.sources} sources`);
   return summary;

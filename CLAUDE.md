@@ -75,6 +75,21 @@ bare `"HTTP 429"` — losing the provider's actual reason and bypassing
 `friendlyError()` entirely. A provider's own error can also arrive wrapped in a
 one-element array rather than a bare object; `parseResponse` unwraps both.
 
+**Metered job-source adapters go through `sources.js#budgetedQueries`, and a
+quota error must surface, never be swallowed.** `ingest.runAll()` used to pass
+every active keyword to every adapter — Adzuna alone multiplied 16 keywords by
+6 countries by 2 pages into ~192 calls a refresh, blowing a monthly free-tier
+quota in hours — and every adapter's `catch` on a failed page swallowed the
+error and returned whatever partial rows it already had, so a rate-limited
+source still wrote `ok: 1` to `fetch_log` and showed a green pill on the
+Sources page. `budgetedQueries()` takes a bounded slice of the keyword list
+that rotates with `settings`'s `fetch_rotation` counter each refresh, so every
+keyword is still used over a day, just not all at once. `isQuotaError()`
+distinguishes a 429/403/rate-limit from a genuine end of results; the former is
+re-thrown as an explicit, friendly error (e.g. "Adzuna refused further
+requests (rate limit)."), the latter still just breaks the pagination loop.
+Any new metered adapter needs both.
+
 **The app works with no API key.** `templates.js` is the free path; `applier.prepare()`
 branches on `ai.available()` and both branches return the same shape. Any new
 feature that only works with a key needs a template fallback or a clear reason.

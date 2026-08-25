@@ -763,6 +763,20 @@ group('Making the CV files');
   ok('the truth guard does not care which service replied',
     typeof claude.enforceTruth === 'function' && typeof claude.enforceResumeTruth === 'function');
 
+  /* ------------------------------------------------------------- sources -- */
+  group('Spending API quota carefully');
+  const { budgetedQueries } = require('../src/main/sources');
+  const qs = ['a', 'b', 'c', 'd', 'e'];
+  ok('a short list is untouched', budgetedQueries(['a', 'b'], 3, 0).length === 2);
+  ok('a long list is trimmed', budgetedQueries(qs, 3, 0).length === 3);
+  ok('the window moves each refresh',
+    budgetedQueries(qs, 3, 0).join() !== budgetedQueries(qs, 3, 1).join());
+  ok('every keyword is used within a full rotation', (() => {
+    const seen = new Set();
+    for (let i = 0; i < qs.length; i++) budgetedQueries(qs, 3, i).forEach((q) => seen.add(q));
+    return seen.size === qs.length;
+  })());
+  ok('a negative seed does not crash', budgetedQueries(qs, 2, -3).length === 2);
 
   console.log(`\n${pass} passed, ${fail} failed\n`);
   // Windows keeps an open SQLite file locked, so close it before removing the folder.
