@@ -312,14 +312,17 @@ BACKGROUND IN ONE LINE: ${cv.pitch || cv.summary || 'An experienced professional
  * Confirmed live against Gemini: a reasoning model can spend an entire small
  * token budget on invisible "thinking" and return nothing, which reads as a
  * broken key rather than a request that was simply too stingy. `cheap: true`
- * turns thinking down on a provider verified to accept that; the wider budget
- * on non-Anthropic wires is the safety net for the ones that are not.
+ * turns thinking off — see `providers.js#buildRequest`, which now does it on
+ * both wires, because Claude's current models think by default too.
+ *
+ * The budget is the same 300 on either wire. It used to be 16 on Anthropic,
+ * from when Claude answered without thinking first; 300 tokens of Sonnet is
+ * about a tenth of a paisa and leaves no room for that assumption to rot again.
  */
 async function ping(opts = {}) {
   const id = opts.provider || budget.providerId();
-  const wire = providers.get(id).wire;
-  const { usage, model } = await call('Reply with the single word: ok', 'ping',
-    wire === 'anthropic' ? 16 : 300, { ...opts, provider: id, cheap: true });
+  const { usage, model } = await call('Reply with the single word: ok', 'ping', 300,
+    { ...opts, provider: id, cheap: true });
   budget.record(usage, model, 'key check');
   return {
     ok: true,

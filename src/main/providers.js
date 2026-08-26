@@ -36,7 +36,7 @@ const PROVIDERS = {
       if (k.startsWith('sk-or-')) return 'That looks like an OpenRouter key, not a Google one.';
       return '';
     },
-    defaultModel: 'gemini-3.5-flash',
+    defaultModel: 'gemini-3.7-flash',
     // Verified live: passing reasoning_effort: "minimal" on the OpenAI-compat
     // endpoint stops Gemini burning its token budget on invisible thinking —
     // used only for calls that do not need reasoning quality, like a key check.
@@ -49,11 +49,19 @@ const PROVIDERS = {
     // Confirmed live against the real API — gemini-2.5-flash and gemini-2.5-pro
     // now 404 with "no longer available to new users", which the models list
     // does not warn about; it still lists them as though they worked.
+    // Checked against ai.google.dev/gemini-api/docs/pricing on 2026-08-25. Two
+    // traps live in that page. 3.6 and 3.7 Flash are on promotional pricing that
+    // doubles on 2027-01-01 — the figures that used to be here were the *future*
+    // ones, so those two looked twice as dear as they are. And 3.5 Flash is the
+    // dearest of the four despite being the oldest, while this table priced it
+    // at Flash-Lite rates and made it the default: a month of tailoring was
+    // being billed into the ledger at a fifth of what Google actually charged.
+    // Revisit these in December 2026, when the promotion ends.
     models: {
-      'gemini-3.5-flash':      { in: 0.30, out: 2.50, label: 'Gemini 3.5 Flash — free tier, the right default' },
-      'gemini-3.5-flash-lite': { in: 0.30, out: 2.50, label: 'Gemini 3.5 Flash-Lite — fastest, free tier' },
-      'gemini-3.6-flash':      { in: 1.50, out: 7.50, label: 'Gemini 3.6 Flash — stronger than the default' },
-      'gemini-3.7-flash':      { in: 1.50, out: 7.50, label: 'Gemini 3.7 Flash — strongest Flash' },
+      'gemini-3.7-flash':      { in: 0.75, out: 3.75, label: 'Gemini 3.7 Flash — newest, cheapest, the right default' },
+      'gemini-3.6-flash':      { in: 0.75, out: 3.75, label: 'Gemini 3.6 Flash — same price, one generation back' },
+      'gemini-3.5-flash-lite': { in: 0.30, out: 2.50, label: 'Gemini 3.5 Flash-Lite — cheapest, weakest at strict JSON' },
+      'gemini-3.5-flash':      { in: 1.50, out: 9.00, label: 'Gemini 3.5 Flash — older and dearer, kept for installs already on it' },
     },
   },
 
@@ -73,10 +81,15 @@ const PROVIDERS = {
     defaultModel: 'claude-sonnet-5',
     freeTier: false,
     dataNote: 'Anthropic does not train on what is sent through the API.',
+    // Sonnet 5's list price is $3/$15. It launched at $2/$10 as an introductory
+    // rate that ends 2026-08-31, and the introductory figure was what this table
+    // held — which would have under-counted the ledger by a third from September
+    // onwards. A price set too high only makes the cap refuse early; one set too
+    // low lets the cap be sailed straight through, so round up when unsure.
     models: {
-      'claude-opus-5':    { in: 5, out: 25, label: 'Opus 5 — most capable, most expensive' },
-      'claude-sonnet-5':  { in: 2, out: 10, label: 'Sonnet 5 — the right default' },
-      'claude-haiku-4-5': { in: 1, out: 5,  label: 'Haiku 4.5 — half the price, still good' },
+      'claude-opus-5':    { in: 5, out: 25, label: 'Opus 5 — most capable, three times the price for no gain here' },
+      'claude-sonnet-5':  { in: 3, out: 15, label: 'Sonnet 5 — the right default' },
+      'claude-haiku-4-5': { in: 1, out: 5,  label: 'Haiku 4.5 — a third of the price, good enough most days' },
     },
   },
 
@@ -91,17 +104,26 @@ const PROVIDERS = {
     keyHint: 'One key for many models. Keys begin with "sk-or-". Model ids ending ":free" cost nothing.',
     keyLooksWrong: (k) => (k.startsWith('sk-or-') ? ''
       : 'OpenRouter keys begin with "sk-or-". Get one at openrouter.ai/keys.'),
-    defaultModel: 'google/gemini-2.5-flash',
+    defaultModel: 'google/gemini-3.7-flash',
     freeTier: true,
-    freeNote: 'Any model id ending in ":free" costs nothing, but free models are rate limited '
-      + 'hard at busy times and are withdrawn without notice.',
+    freeNote: 'Model ids ending in ":free" cost nothing, but they are rate limited hard at busy '
+      + 'times and are withdrawn without notice — which is why none are named here. Check '
+      + 'openrouter.ai/models for the ones live today and type the id in.',
     dataNote: 'Free models on OpenRouter generally allow the provider to train on what is sent. '
       + 'Tailoring sends your whole CV — prefer a paid model id if that matters to you.',
+    // Checked against openrouter.ai/api/v1/models on 2026-08-25. The two ':free'
+    // ids that used to be here — openai/gpt-oss-120b:free and
+    // deepseek/deepseek-chat:free — do not exist on OpenRouter at all any more,
+    // so choosing either was a guaranteed 404 that this table then priced at
+    // nothing. That is the failure mode to watch for on a catalogue nobody can
+    // see go stale: a wrong price costs money, a wrong id costs the feature.
+    // OpenRouter's free ids rotate constantly, which is what the live list
+    // fetched on key validation is for; none are hard-coded here on purpose.
     models: {
-      'google/gemini-2.5-flash':      { in: 0.30, out: 2.50, label: 'Gemini 2.5 Flash, via OpenRouter' },
-      'anthropic/claude-sonnet-4.5':  { in: 3, out: 15, label: 'Claude Sonnet 4.5, via OpenRouter' },
-      'openai/gpt-oss-120b:free':     { in: 0, out: 0, label: 'GPT-OSS 120B — free, rate limited' },
-      'deepseek/deepseek-chat:free':  { in: 0, out: 0, label: 'DeepSeek Chat — free, rate limited' },
+      'google/gemini-3.7-flash':      { in: 0.375, out: 1.875, label: 'Gemini 3.7 Flash — newest, and the cheapest here' },
+      'google/gemini-3.5-flash-lite': { in: 0.30, out: 2.50, label: 'Gemini 3.5 Flash-Lite — fastest' },
+      'anthropic/claude-sonnet-5':    { in: 2, out: 10, label: 'Claude Sonnet 5 — best at strict JSON, dearest here' },
+      'openai/gpt-oss-120b':          { in: 0.037, out: 0.17, label: 'GPT-OSS 120B — open weights, near enough free' },
     },
   },
 };
@@ -140,15 +162,24 @@ function buildRequest(providerId, { model, system, user, maxTokens, key, cheap =
   const p = get(providerId);
 
   if (p.wire === 'anthropic') {
+    const body = {
+      model,
+      max_tokens: maxTokens,
+      system,                                     // its own top-level field
+      messages: [{ role: 'user', content: user }],
+    };
+    // Claude's current models think before answering unless told not to, and
+    // thinking is spent out of max_tokens. The key check asks for one word in a
+    // tiny budget, so left alone the whole budget goes on invisible reasoning
+    // and the reply comes back with no text in it — which this app reads as a
+    // broken key and refuses to save. A working key would look dead. Gemini has
+    // the same trap and is handled below; this is the same fix on the other
+    // wire. Only the key check turns it off — tailoring wants the reasoning.
+    if (cheap) body.thinking = { type: 'disabled' };
     return {
       url: p.endpoint,
       headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
-      body: {
-        model,
-        max_tokens: maxTokens,
-        system,                                   // its own top-level field
-        messages: [{ role: 'user', content: user }],
-      },
+      body,
     };
   }
 

@@ -26,8 +26,46 @@ function providerId() {
 
 const provider = () => providers.get(providerId());
 
-/** The price table for the provider in use. */
-const pricing = () => provider().models;
+/**
+ * The model list to offer for the provider in use, priced where the price is
+ * known. The Settings dropdown is drawn from this and used to be drawn from the
+ * hard-coded table alone — so it could only ever offer four models, three of
+ * which had gone stale, while the app told the person underneath it that the
+ * list was refreshed from the service. It is now: anything the provider's own
+ * catalogue returned on the last key check is merged in here.
+ *
+ * A merged-in model carries no price of its own, so it is given the default
+ * model's rate rather than nothing — near enough for a sibling model, and it
+ * keeps the cap honest instead of letting an unpriced choice spend freely.
+ */
+function modelsFor(id = providerId()) {
+  const p = providers.get(id);
+  const live = settings.get(`ai_models_${p.id}`, []);
+  if (!Array.isArray(live) || !live.length) return p.models;
+  const base = p.models[p.defaultModel] || UNPRICED;
+  const out = { ...p.models };
+  for (const m of live.filter(answersInText)) {
+    // Priced at the default model's rate, not at nothing. A zero here does not
+    // just mis-report one line — it makes the model the cheapest thing in the
+    // list, so the onboarding screen worked out its "what it costs" figure from
+    // it and told people tailoring was free.
+    if (!out[m]) out[m] = { in: base.in, out: base.out, label: m };
+  }
+  return out;
+}
+
+const pricing = () => modelsFor();
+
+/**
+ * A provider's model list is everything it sells, not everything that can hold
+ * a conversation — Google's includes embeddings, image and video generation and
+ * text-to-speech, none of which can rewrite a CV. Offering them in the dropdown
+ * would let somebody pick one and get a failure that looks like a broken key.
+ * Named exclusions rather than an allow-list, so a model released tomorrow is
+ * still offered; the cost of a wrong guess here is one line in a dropdown.
+ */
+const NOT_CHAT = /embedding|embed-|imagen|veo-|whisper|tts|audio|image-gen|aqa|rerank|moderation/i;
+const answersInText = (id) => !NOT_CHAT.test(id);
 
 function model() {
   const p = provider();
@@ -142,5 +180,5 @@ function record(usage, m = model(), kind = 'tailor') {
   return { spend, monthTotal: book[key], warning };
 }
 
-module.exports = { model, priceOf, pricing, cost, typicalCost, provider, providerId,
+module.exports = { model, priceOf, pricing, modelsFor, cost, typicalCost, provider, providerId,
   status, checkBeforeCall, record, monthKey, spentThisMonth };

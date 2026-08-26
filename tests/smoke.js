@@ -185,10 +185,18 @@ ok('a tailored application on Claude costs a few cents',
 ok('haiku costs about half of sonnet',
   budget.typicalCost('claude-haiku-4-5') < budget.typicalCost('claude-sonnet-5') * 0.55);
 
+settings.set('ai_provider', 'anthropic');
+settings.set('ai_model', 'claude-sonnet-5');
+const onClaude = budget.typicalCost();
 settings.set('ai_provider', 'gemini');
 settings.set('ai_model', '');
+// Compared against Claude rather than a hard-coded ceiling. The ceiling used to
+// be $0.02, which only passed because the Gemini table under-priced its own
+// default fivefold — so the test went green off the back of the bug it should
+// have caught. A figure copied from a provider's pricing page is exactly the
+// kind of thing that goes stale; the relationship between the two does not.
 ok('the same application on Gemini costs less than on Claude',
-  budget.typicalCost() < 0.02, budget.typicalCost().toFixed(4));
+  budget.typicalCost() < onClaude, `${budget.typicalCost().toFixed(4)} vs ${onClaude.toFixed(4)}`);
 
 /* The cap has to stop it whatever the per-call price is. */
 settings.set('ai_provider', 'anthropic');
@@ -201,7 +209,10 @@ for (let i = 0; i < 4000; i++) {
   budget.record({ input_tokens: 8000, output_tokens: 4000 });
   allowed++;
 }
-ok('a $10 limit buys well over a hundred applications', allowed > 120, String(allowed));
+// 120 was tuned to Sonnet 5's introductory $2/$10, which ended on 2026-08-31.
+// At the list price of $3/$15 the same $10 buys 118. The point of the check is
+// that the cap is not tripping absurdly early, not the exact count.
+ok('a $10 limit buys a hundred applications or more', allowed >= 100, String(allowed));
 ok('the limit actually stops it', stopMessage.includes('$10.00'), stopMessage.slice(0, 60));
 ok('it never overspends the limit', budget.spentThisMonth() <= 10, budget.spentThisMonth().toFixed(2));
 settings.set('budget_usd_monthly', 0);
@@ -212,6 +223,42 @@ settings.set('budget_usd_monthly', 10);
 settings.set('spend_by_month', {});
 settings.set('ai_provider', 'gemini');
 settings.set('ai_model', '');
+
+/* --------------------------------------------------- the provider table */
+group('The provider table itself');
+{
+  const providers = require('../src/main/providers');
+
+  // A wrong price costs money and shows up in the ledger eventually. A wrong
+  // model id costs the whole feature and shows up as "that key does not work",
+  // which is much harder to trace back to a table nobody can see go stale.
+  // Two dead OpenRouter ids shipped for months without anything noticing.
+  for (const id of providers.ids()) {
+    const p = providers.get(id);
+    ok(`${id}: its default model is one it lists`, !!p.models[p.defaultModel], p.defaultModel);
+    ok(`${id}: nothing it lists is priced at zero`,
+      Object.entries(p.models).every(([, m]) => m.in > 0 && m.out > 0),
+      Object.entries(p.models).filter(([, m]) => !m.in || !m.out).map(([k]) => k).join(',') || 'all priced');
+  }
+
+  // Both wires think before answering unless told not to, and thinking is spent
+  // out of max_tokens. The key check asks for one word in a small budget, so
+  // without this the whole budget goes on invisible reasoning, no text comes
+  // back, and a working key is rejected as broken.
+  const thinkingOff = (id) => {
+    const p = providers.get(id);
+    const b = providers.buildRequest(id, { model: p.defaultModel, system: 's', user: 'u',
+      maxTokens: 300, key: 'k', cheap: true }).body;
+    return p.wire === 'anthropic' ? b.thinking?.type === 'disabled' : b.reasoning_effort === 'minimal';
+  };
+  ok('the key check turns thinking off on Claude', thinkingOff('anthropic'));
+  ok('the key check turns thinking off on Gemini', thinkingOff('gemini'));
+
+  // ...and leaves it alone for the work that actually needs it.
+  const tailorBody = providers.buildRequest('anthropic', { model: 'claude-sonnet-5', system: 's',
+    user: 'u', maxTokens: 8000, key: 'k' }).body;
+  ok('tailoring still gets to think', tailorBody.thinking === undefined);
+}
 
 /* ------------------------------------------------------------- secrets */
 group('Keeping credentials out of the open');
