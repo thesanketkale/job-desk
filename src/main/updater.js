@@ -31,6 +31,13 @@ let autoUpdater = null;
 let notified = false;
 let notifiedAvailable = false;
 let lastCheck = null;   // { at, ok, message } — so a silent background failure is not invisible
+// Whether the feed was actually built WITH a token, as opposed to a token row
+// merely existing. Those two can disagree — a saved secret that no longer
+// decrypts on this machine leaves hasSecret() true while applyFeed() sends
+// nothing — and when they do, the unauthenticated feed 404s on a private
+// repository and the old message blamed the repository's permissions for what
+// was really a credential that never left the database.
+let feedHasToken = false;
 
 function config() {
   let pkg = {};
@@ -63,6 +70,7 @@ function applyFeed() {
   const { owner, repo } = githubTarget();
   if (!owner || !repo) return;
   const token = settings.getSecret('github_pat', '');
+  feedHasToken = !!token;
   autoUpdater.setFeedURL({ provider: 'github', owner, repo, private: !!token, token: token || undefined });
 }
 
@@ -143,10 +151,24 @@ function friendlyUpdateError(err) {
   if (/401|403|bad credentials|invalid.*token|expired.*token/i.test(m)) {
     return 'That GitHub token was rejected — it may be wrong, expired, or revoked. Check it in Settings.';
   }
+  // A release whose latest.yml names a file that is not attached to it. The
+  // installer is built with spaces in its name and GitHub rewrites spaces to
+  // dots on upload, so the two disagree and the download dies after the check
+  // has already said an update is on the way — see `nsis.artifactName`, which
+  // is now space-free so both sides agree. Nothing the person can fix.
+  if (err?.code === 'ERR_UPDATER_ASSET_NOT_FOUND' || /cannot find asset/i.test(m)) {
+    return 'That release is missing the file this app needs to install it. '
+      + 'Ask Sanket for a rebuilt release, or install the newest version by hand.';
+  }
   if (/404|not.?found/i.test(m)) {
-    return hasToken()
-      ? 'Could not find a release. Check the token in Settings has access to this repository.'
-      : 'Could not read the releases — if this repository is private, add a GitHub token in Settings.';
+    // feedHasToken, not hasToken(): the question is whether the request that
+    // just 404'd actually carried a token, not whether one is on file.
+    if (!feedHasToken) {
+      return hasToken()
+        ? 'The saved GitHub token could not be read on this computer, so the check ran without it. Re-enter it in Settings.'
+        : 'Could not read the releases — if this repository is private, add a GitHub token in Settings.';
+    }
+    return 'Could not find a release. Check the token in Settings has access to this repository.';
   }
   return `Could not check for updates: ${m}`;
 }

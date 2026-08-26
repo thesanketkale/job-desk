@@ -341,6 +341,25 @@ group('Telling a rejected GitHub token apart from a genuine 404');
     /release/i.test(updater.friendlyUpdateError(genuineNotFoundError))
     && !/rejected/i.test(updater.friendlyUpdateError(genuineNotFoundError)),
     updater.friendlyUpdateError(genuineNotFoundError));
+
+  /* The one that cost hours to find: the version check succeeds, then the
+     download dies because latest.yml names "JobDesk-Setup-1.2.4.exe" while the
+     asset GitHub actually holds is "Job.Desk.Setup.1.2.4.exe" — GitHub rewrites
+     spaces in an uploaded asset's name to dots, so an installer built with
+     spaces in its name can never be found again. nsis.artifactName below is
+     space-free to keep both sides identical; this asserts the error a
+     mismatch produces is at least legible rather than raw electron-updater. */
+  const assetMissing = Object.assign(
+    new Error('Cannot find asset "Job-Desk-Setup-1.2.4.exe" in: [{"name":"Job.Desk.Setup.1.2.4.exe"}]'),
+    { code: 'ERR_UPDATER_ASSET_NOT_FOUND' });
+  ok('a release whose latest.yml disagrees with its assets says so in plain language',
+    /missing the file/i.test(updater.friendlyUpdateError(assetMissing)),
+    updater.friendlyUpdateError(assetMissing));
+
+  const pkg = require('../package.json');
+  ok('the installer filename has no spaces, so GitHub cannot rename it on upload',
+    !/\s/.test(pkg.build.nsis.artifactName || ''),
+    `nsis.artifactName = ${pkg.build.nsis.artifactName}`);
 }
 
 /* ------------------------------------------------------------- secrets */
