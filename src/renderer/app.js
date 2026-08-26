@@ -1371,7 +1371,7 @@ VIEWS.settings = async function settingsView() {
                autocomplete="off" spellcheck="false">
         <span class="inline-note"><a href="#" id="s-key-link" data-external="">Get a key</a> —
           checked against the service before it is saved.</span></label>
-      <div class="row" style="margin-top:var(--s3)">
+      <div class="row" style="margin-top:var(--s3);flex-wrap:wrap">
         <button class="btn btn--primary btn--sm" id="s-claude-save">Check and save the key</button>
         <button class="btn btn--sm" id="s-claude-test" ${s.aiEnabled ? '' : 'disabled'}>Check it works</button>
         ${s.has_anthropic_key || s.has_gemini_key || s.has_openrouter_key ? '<button class="btn btn--ghost btn--sm btn--danger" id="s-claude-clear">Remove it</button>' : ''}
