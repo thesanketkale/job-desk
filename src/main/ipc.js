@@ -237,7 +237,7 @@ function register(ctx) {
   handle('settings:setSecret', ({ key, value }) => {
     if (!['anthropic_api_key', 'gemini_api_key', 'openrouter_api_key',
       'smtp_password', 'adzuna', 'usajobs', 'jooble', 'jsearch',
-      'activejobsdb', 'ycjobs'].includes(key)) {
+      'activejobsdb', 'ycjobs', 'github_pat'].includes(key)) {
       throw new Error('Unknown credential.');
     }
     settings.setSecret(key, value);
@@ -251,6 +251,10 @@ function register(ctx) {
     if (SOURCE_FOR_SECRET[key] && value && Object.values(value).some(Boolean)) {
       db.run('UPDATE sources SET active = 1 WHERE type = ?', [SOURCE_FOR_SECRET[key]]);
     }
+    // Saving or clearing the token changes which GitHub provider electron-updater
+    // uses (public vs. authenticated) — see updater.js#applyFeed. Re-apply it
+    // immediately rather than waiting for the next launch.
+    if (key === 'github_pat') updater.applyFeed();
     return settings.redacted();
   });
   handle('settings:testMail', () => mailer.verify());
@@ -261,21 +265,16 @@ function register(ctx) {
     providers: providers.catalogue().map((p) => ({
       ...p,
       hasKey: settings.hasSecret(providers.get(p.id).secret),
-      models: { ...p.models, ...savedModels(p.id) },
+      // budget.modelsFor() is the one place that merges the provider's own live
+      // catalogue into the hard-coded table. This used to keep a second copy of
+      // that logic, and the two disagreed: the copy priced an unlisted model at
+      // zero, which made it the cheapest thing in the list and had the setup
+      // screen quote tailoring as costing nothing.
+      models: budget.modelsFor(p.id),
     })),
     current: budget.providerId(),
     model: budget.model(),
   }));
-
-  /** The provider's own model list, cached so the table in providers.js can go stale. */
-  const savedModels = (id) => {
-    const live = settings.get(`ai_models_${id}`, []);
-    if (!Array.isArray(live)) return {};
-    const known = providers.get(id).models;
-    const out = {};
-    for (const m of live) if (!known[m]) out[m] = { in: 0, out: 0, label: m };
-    return out;
-  };
 
   /**
    * Checks a typed key against the real API and saves it only if it works, so a
@@ -441,12 +440,21 @@ function register(ctx) {
         phone: cv.contact?.phone || '',
         linkedin: cv.contact?.linkedin ? `https://${String(cv.contact.linkedin).replace(/^https?:\/\//, '')}` : '',
         website: cv.contact?.website ? `https://${String(cv.contact.website).replace(/^https?:\/\//, '')}` : '',
-        city: settings.get('profile_city', 'Vadodara'),
-        state: settings.get('profile_state', 'Gujarat'),
-        country: settings.get('profile_country', 'India'),
+        // No fallback beyond empty here on purpose. These used to default to one
+        // real person's actual city, state, notice period and years of
+        // experience — harmless-looking placeholder text that was in fact her
+        // details, shipping in every installer regardless of who runs it,
+        // typed straight into someone else's company-form fields until they
+        // set their own in Settings. `profile.syncProfile()` already fills
+        // city/state/country from the CV at import time when the CV has them;
+        // an empty box the person notices and fills in beats a wrong answer
+        // that looks plausible enough to send.
+        city: settings.get('profile_city', ''),
+        state: settings.get('profile_state', ''),
+        country: settings.get('profile_country', ''),
         location: cv.contact?.location || '',
-        noticePeriod: settings.get('profile_notice', 'Immediate'),
-        yearsExperience: settings.get('profile_years', '8'),
+        noticePeriod: settings.get('profile_notice', ''),
+        yearsExperience: settings.get('profile_years', ''),
         currentSalary: '',
         expectedSalary: settings.get('profile_expected_salary', ''),
         coverLetter: a.cover_letter || '',
@@ -505,7 +513,10 @@ function register(ctx) {
   handle('app:reseed', () => { seedIfEmpty(); return true; });
   handle('app:backup', () => db.backup());
   handle('app:checkUpdates', () => updater.checkNow());
-  handle('app:updateStatus', () => ({ enabled: updater.enabled(), ...updater.config(), version: app.getVersion() }));
+  handle('app:updateStatus', () => ({
+    enabled: updater.enabled(), ...updater.config(), version: app.getVersion(),
+    hasToken: updater.hasToken(), lastCheck: updater.lastCheck,
+  }));
 }
 
 module.exports = { register };

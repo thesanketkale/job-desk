@@ -1,5 +1,33 @@
 # Job Desk — how to use it
 
+## Installing it
+
+Before running `Job Desk Setup x.y.z.exe` for the first time, double-click the
+`jobdesk-signing.cer` file Sanket sends alongside it, then:
+
+1. **Install Certificate…**
+2. **Local Machine** (it will ask for admin permission — that is expected)
+3. **Place all certificates in the following store** → **Browse…** →
+   **Trusted Root Certification Authorities** → **OK** → **Next** → **Finish**
+
+That is a one-time step. It tells Windows this one certificate is fine to
+trust — nothing else changes on the computer. After that, the installer (and
+every update after it, since they are signed the same way) runs without the
+*"Windows protected your PC"* warning. If you skip this step, that warning
+still appears — click **More info** → **Run anyway**, once.
+
+Run the installer, then open the app.
+
+## Keeping it up to date
+
+Job Desk checks for a new version each time it opens, and installs it quietly
+when you next close the app — nothing to do most of the time.
+
+The one thing it needs, since this copy is not on the public internet: a
+short access code from Sanket, pasted in once. Settings → *Where everything is
+kept* → **GitHub access token**, paste it in, press **Save**. He can tell you
+exactly where to get it if he has not already sent it with the installer.
+
 ## Start here: your resume
 
 The first thing the app asks for is your resume. Press **Choose my resume…** and

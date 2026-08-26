@@ -32,25 +32,47 @@ claude
 rules that matter, and the conventions without you explaining anything. Start with
 something like *"read CLAUDE.md, then add X"*.
 
-## 3. One public repository
+## 3. One repository — public, or private with a token
 
-Create `jobdesk` on GitHub as a **public** repository.
+Create `jobdesk` on GitHub, public or private — both work for updates now.
 
-Public is the right call here, and it is what makes everything else simple:
+**Public** is simpler:
 
 - The app can update itself with no token at all, because public releases are
-  readable by anyone. On a private repo, `electron-updater` needs a GitHub token
-  shipped inside the `.exe`, where anyone with the file could extract it.
+  readable by anyone.
 - CI minutes are unlimited and free on public repositories.
 - There is no fine-grained PAT to create, store, or replace when it expires.
 
-This is only safe because **nothing personal is in the repository or the build**:
+**Private** needs one extra thing per person running the app: a GitHub Personal
+Access Token, pasted into Settings → *Where everything is kept*. `updater.js`
+uses it to call the GitHub API as `PrivateGitHubProvider` instead of the
+unauthenticated one — the token stays on that machine (stored the same way the
+Gemini or SMTP key is, through `settings.setSecret`, which is `safeStorage`
+under the hood) and is never bundled into the installer, so extracting the
+`.exe` gives nobody the token.
+
+Give her a **fine-grained** token, not a classic one — narrower is safer for a
+token that is handed over rather than kept:
+
+1. github.com/settings/personal-access-tokens/new
+2. Resource owner: your account. Repository access: **Only select repositories**
+   → this one.
+3. Repository permissions → **Contents: Read-only**. Nothing else.
+4. Set an expiration (a year is reasonable) and generate it.
+5. Hand her the token string once — GitHub will not show it again. It goes into
+   Settings → *Where everything is kept* → *GitHub access token*.
+
+Either way, this is only safe because **nothing personal is in the repository
+or the build**:
 
 - `resources/master-resume.json` — the real CV — is in `.gitignore`.
 - It is also excluded from `build.files`, so it never reaches an installer.
-- `scripts/check-build-privacy.mjs` reads the real CV and greps the whole build
-  for every value in it. CI runs it *before* publishing and fails the release if
-  anything matches.
+- `scripts/check-build-privacy.mjs` reads the real CV (when present) and greps
+  the whole build for every value in it, plus a small fixed denylist of values
+  that have leaked once before (see the comment at the top of that file) so the
+  same mistake catches itself even without the real CV on the machine doing the
+  check. CI runs it *before* publishing and fails the release if anything
+  matches.
 
 **Keep the real CV somewhere.** It is not in the repo any more. A private gist, a
 password manager note, or just the copy already in `%APPDATA%\Job Desk\` on the
@@ -101,10 +123,11 @@ and the portable `.exe` appear at `github.com/thesanketkale/job-desk/releases`.
 
 Download `Job Desk Setup x.y.z.exe` from Releases and hand it over.
 
-Windows SmartScreen will say *"Windows protected your PC"* on first run because
-the app is unsigned — **More info** → **Run anyway**, once. It never asks again.
-(A code-signing certificate is about $200/year and removes that. For one person
-on one machine it is not worth it.)
+If the build is signed (see *Signing the build* below) and she has imported the
+certificate once, it installs with no SmartScreen prompt at all. Unsigned, or on
+a machine that has not imported the certificate yet, Windows SmartScreen says
+*"Windows protected your PC"* on first run — **More info** → **Run anyway**,
+once. It never asks again either way.
 
 **The CV.** The installer deliberately ships without one, by design. Either:
 
@@ -116,6 +139,68 @@ on one machine it is not worth it.)
 
 After the first release, updates take care of themselves: the app checks on
 launch, downloads quietly, and installs when the app is next closed.
+
+---
+
+## Signing the build
+
+Not a paid certificate — those run about $200/year and buy Windows-wide
+reputation. This is a **self-signed** one instead: free, but trusted on
+nowhere except the one machine that has been told to trust it. That is
+exactly the scope needed here — one app, one person, one machine — and it is
+what removes the SmartScreen prompt for her specifically, not for the world.
+
+**Generate it once:**
+
+```powershell
+.\scripts\create-signing-cert.ps1
+```
+
+This writes four files to `scripts\signing\` (already gitignored — never commit
+any of them):
+
+| File | What it is |
+|---|---|
+| `jobdesk-signing.pfx` | The private key. electron-builder signs with this. Keep it. |
+| `pfx-password.txt` | The password for the .pfx, generated randomly. Move it to a password manager, then delete this file. |
+| `jobdesk-signing.pfx.base64.txt` | The .pfx re-encoded as a `data:` URL, for pasting into a GitHub Actions secret (a secret cannot point at a local file path). |
+| `jobdesk-signing.cer` | The public certificate — no private key, safe to hand over. **This is the one Srishti needs**; GUIDE.md has her side of the steps. |
+
+**Building locally, signed:**
+
+```powershell
+$env:CSC_LINK = (Resolve-Path ".\scripts\signing\jobdesk-signing.pfx").Path
+$env:CSC_KEY_PASSWORD = Get-Content ".\scripts\signing\pfx-password.txt" -Raw
+npm run build:win
+```
+
+electron-builder reads `CSC_LINK` / `CSC_KEY_PASSWORD` automatically — nothing
+in `package.json` needs to name the certificate. Leave the two variables unset
+and the build comes out unsigned exactly as before, so signing is opt-in, not a
+new requirement.
+
+**Signing in CI:** add two repository secrets (Settings → Secrets and variables
+→ Actions):
+
+- `CSC_LINK` — the entire contents of `jobdesk-signing.pfx.base64.txt`
+- `CSC_KEY_PASSWORD` — the contents of `pfx-password.txt`
+
+`release.yml` already passes both through to the build step; the release
+workflow signs automatically the moment those two secrets exist, and simply
+builds unsigned if they do not.
+
+**What this does and does not do:**
+
+- It stops Windows from calling the publisher "Unknown" and lets the same
+  certificate vouch for every future signed release — updates included — once
+  it is trusted.
+- It does **not** get the SmartScreen prompt to go away on a machine that has
+  never seen this certificate. Reputation is not something a self-signed
+  certificate can buy; only Srishti's own machine, after the one-time import
+  in GUIDE.md, trusts it.
+- Re-running the script makes a *different* certificate (a new thumbprint).
+  Anything already trusted only trusts the old one — a new certificate means
+  a new `.cer` to import, on every machine that trusted the previous one.
 
 ---
 
@@ -160,8 +245,12 @@ being read from the CV at runtime.
 mismatch; Windows does not care about case and Linux CI does. Check your imports.
 
 **No updates are showing up.** Confirm `updates.channel` is `github-public` in
-`package.json` and that `build.publish[0].owner` matches your username. The app
-logs update failures silently on purpose — check `%APPDATA%\Job Desk\logs\`.
+`package.json` and that `build.publish[0].owner`/`repo` match the real
+repository. If it is private, check Settings shows a GitHub token saved — the
+"Check for updates" button and the background check both now show the actual
+reason in Settings (a rejected token, a repository the token cannot see, no
+release found) instead of only writing it to `%APPDATA%\Job Desk\logs\`; the
+log is still there too, for anything that happens before the window is open.
 
 **You want updates turned off.** Set `updates.channel` to `off` in `package.json`
 and release. The Settings button then just opens the releases page.

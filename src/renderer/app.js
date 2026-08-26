@@ -1479,13 +1479,13 @@ VIEWS.settings = async function settingsView() {
       <p class="small muted">What the app types into company forms. Name, email, phone and links come
         from the CV.</p>
       <div class="row" style="margin-top:var(--s4);gap:var(--s3)">
-        <label class="field" style="flex:1"><span>City</span><input type="text" id="s-city" value="${esc(s.profile_city || 'Vadodara')}"></label>
-        <label class="field" style="flex:1"><span>State</span><input type="text" id="s-state" value="${esc(s.profile_state || 'Gujarat')}"></label>
-        <label class="field" style="flex:1"><span>Country</span><input type="text" id="s-country" value="${esc(s.profile_country || 'India')}"></label>
+        <label class="field" style="flex:1"><span>City</span><input type="text" id="s-city" value="${esc(s.profile_city || '')}" placeholder="Your city"></label>
+        <label class="field" style="flex:1"><span>State</span><input type="text" id="s-state" value="${esc(s.profile_state || '')}" placeholder="Your state or region"></label>
+        <label class="field" style="flex:1"><span>Country</span><input type="text" id="s-country" value="${esc(s.profile_country || '')}" placeholder="Your country"></label>
       </div>
       <div class="row" style="margin-top:var(--s3);gap:var(--s3)">
-        <label class="field" style="flex:1"><span>Notice period</span><input type="text" id="s-notice" value="${esc(s.profile_notice || 'Immediate')}"></label>
-        <label class="field" style="flex:1"><span>Years of experience</span><input type="text" id="s-years" value="${esc(s.profile_years || '8')}"></label>
+        <label class="field" style="flex:1"><span>Notice period</span><input type="text" id="s-notice" value="${esc(s.profile_notice || '')}" placeholder="e.g. Immediate"></label>
+        <label class="field" style="flex:1"><span>Years of experience</span><input type="text" id="s-years" value="${esc(s.profile_years || '')}" placeholder="e.g. 8"></label>
       </div>
       <label class="field" style="margin-top:var(--s3)"><span>Salary expectation (optional)</span>
         <input type="text" id="s-salary" value="${esc(s.profile_expected_salary || '')}" placeholder="Leave empty to skip the question"></label>
@@ -1600,10 +1600,33 @@ VIEWS.settings = async function settingsView() {
         <span class="small muted">Job Desk ${esc(s.version)}</span>
       </div>
       <p class="inline-note" id="s-update-note" style="margin-top:var(--s3)"></p>
+
+      <div id="s-update-token-wrap" style="margin-top:var(--s4);padding-top:var(--s4);border-top:1px solid var(--hair)">
+        <p class="small"><b>GitHub access token, for checking updates.</b> This copy of Job Desk lives in a
+          private repository, so checking for a new version needs a token with permission to read it —
+          the same way an application needs a job-search key. Sanket can hand you one; paste it here once.</p>
+        <div class="row" style="gap:var(--s3);flex-wrap:wrap;margin-top:var(--s2)">
+          <label class="field" style="flex:1;min-width:220px"><span>Personal access token</span>
+            <input type="password" id="s-gh-pat" autocomplete="off"
+                   placeholder="${s.has_github_pat ? '•••••••••••••••• (already saved)' : 'github_pat_…'}"></label>
+          <button class="btn btn--sm" id="s-gh-pat-save" style="align-self:flex-end">Save</button>
+          ${s.has_github_pat ? '<button class="btn btn--sm" id="s-gh-pat-clear" style="align-self:flex-end">Remove</button>' : ''}
+        </div>
+        <p class="inline-note" id="s-gh-pat-note" style="margin-top:var(--s2)"></p>
+      </div>
     </section>
   </div>`;
 
   $('#s-cv').value = JSON.stringify(await call(window.api.cv.get, {}), null, 2);
+
+  // The background check on launch used to fail silently — the reason lived
+  // only in the logs folder, so a private repo with no token yet just looked
+  // like updates had quietly stopped. This surfaces whatever it last found
+  // the moment Settings is opened, not only after pressing the button.
+  try {
+    const u = await call(window.api.app.updateStatus, {});
+    if (u.enabled && u.lastCheck?.message) $('#s-update-note').textContent = u.lastCheck.message;
+  } catch { /* the button below still works even if this failed */ }
 
   const patch = async (obj, msg = 'Saved.') => {
     try { await call(window.api.settings.set, { patch: obj }); toast(msg); }
@@ -1879,6 +1902,27 @@ VIEWS.settings = async function settingsView() {
     } catch (err) { oops(err); }
     btn.disabled = false;
     btn.textContent = 'Check for updates';
+  });
+  $('#s-gh-pat-save')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const v = $('#s-gh-pat').value.trim();
+    if (!v) { toast('Paste the token first.', 'warn'); return; }
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Saving…';
+    try {
+      await call(window.api.settings.setSecret, { key: 'github_pat', value: v });
+      $('#s-gh-pat').value = '';
+      toast('Token saved.');
+      go('settings');
+    } catch (err) { oops(err); btn.disabled = false; btn.textContent = 'Save'; }
+  });
+  $('#s-gh-pat-clear')?.addEventListener('click', async (e) => {
+    e.currentTarget.disabled = true;
+    try {
+      await call(window.api.settings.setSecret, { key: 'github_pat', value: '' });
+      toast('Token removed.');
+      go('settings');
+    } catch (err) { oops(err); e.currentTarget.disabled = false; }
   });
 
   $('#s-backup').addEventListener('click', async () => {

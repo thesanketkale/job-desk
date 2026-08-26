@@ -31,7 +31,7 @@ const DEFAULTS = {
 
 // One key per provider, kept separately so switching back does not lose the other.
 const SECRET_KEYS = new Set(['anthropic_api_key', 'gemini_api_key', 'openrouter_api_key',
-  'smtp_password', 'adzuna', 'usajobs', 'jooble', 'jsearch', 'activejobsdb', 'ycjobs']);
+  'smtp_password', 'adzuna', 'usajobs', 'jooble', 'jsearch', 'activejobsdb', 'ycjobs', 'github_pat']);
 
 function get(key, fallback = undefined) {
   const row = db.get('SELECT v FROM settings WHERE k = ?', [key]);
@@ -125,6 +125,7 @@ function redacted() {
     has_gemini_key: hasSecret('gemini_api_key'),
     has_openrouter_key: hasSecret('openrouter_api_key'),
     has_smtp_password: hasSecret('smtp_password'),
+    has_github_pat: hasSecret('github_pat'),
     has_adzuna: !!(getSecret('adzuna', {}).app_id),
     has_jooble: !!(getSecret('jooble', {}).api_key),
     has_jsearch: !!(getSecret('jsearch', {}).api_key),

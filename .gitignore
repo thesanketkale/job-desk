@@ -3,6 +3,11 @@ dist/
 dist-personal/
 *.log
 
+# The self-signed code-signing certificate's private key and password.
+# scripts/create-signing-cert.ps1 writes these; scripts/signing/*.cer (the
+# public half) is the only thing meant to leave this machine.
+scripts/signing/
+
 # Her actual CV never goes in the repository. The app copies whatever CV it
 # finds into the user's data folder on first run, and the blank
 # resources/master-resume.example.json is what ships in the build.
