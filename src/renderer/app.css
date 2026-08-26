@@ -354,18 +354,23 @@ select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,v
   display:inline-block; animation:sp .7s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
 /* min-width:0 overrides the flex/grid default of min-width:auto, which
-   floors a .stat at the width of its longest unbreakable word (e.g.
-   "APPLICATION") — in three of these side by side in a narrower card
-   (Settings' spending-limit panel), that floor added up to wider than the
-   card itself, so the row spilled past its border instead of wrapping. */
-.stat{display:flex; flex-direction:column; gap:var(--s1); padding:var(--s3) var(--s4); background:var(--surface);
+   floors a .stat at the width of its longest unbreakable word — in three of
+   these side by side in a narrower card (Settings' spending-limit panel),
+   that floor added up to wider than the card itself, so the row spilled
+   past its border instead of wrapping. Confirmed live in the real app (not
+   just this stylesheet's own math) that the label wrapping alone was not
+   quite enough room, so padding and the gap between tiles are both trimmed
+   here too, on top of shortening "Per application" to "Per app" at the
+   call site in app.js. */
+.stat{display:flex; flex-direction:column; gap:var(--s1); padding:var(--s3); background:var(--surface);
   border:1px solid var(--hair); border-radius:var(--r-lg); min-width:0}
-/* --t-xl rather than the --t-2xl this used before — three of these side by
-   side in a narrower card (Settings' spending-limit panel) had less room
-   than a lone stat elsewhere gets, and the smaller size buys back the
-   headroom that min-width:0 alone left tight rather than generous. */
+/* No text-overflow:ellipsis here on purpose: it hid digits on a currency
+   value ("$0.021" clipped to "$0.0…"), which is worse than the overflow bug
+   it was meant to fix — a person reading "$0.0…" cannot tell it apart from
+   $0.01, $0.05 or $0.09. Wrapping to a second line if it is ever genuinely
+   forced to is honest about the number; hiding part of it is not. */
 .stat b{font-family:var(--serif); font-size:var(--t-xl); line-height:1.15; color:var(--ink); font-weight:500;
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+  overflow-wrap:break-word}
 .stat span{font-size:var(--t-xs); letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
   line-height:1.3}
 

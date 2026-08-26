@@ -1410,8 +1410,8 @@ VIEWS.settings = async function settingsView() {
           ${Math.floor((b.remaining || 0) / (b.perApplication || 1))} more applications.
           Resets on the 1st.</p></div>` : ''}
 
-      <div class="row" style="margin-top:var(--s5);gap:var(--s4)">
-        <div class="stat" style="flex:1"><b>$${(b.perApplication || 0).toFixed(3)}</b><span>Per application</span></div>
+      <div class="row" style="margin-top:var(--s5);gap:var(--s3)">
+        <div class="stat" style="flex:1"><b>$${(b.perApplication || 0).toFixed(3)}</b><span>Per app</span></div>
         <div class="stat" style="flex:1"><b>${s.tailor_count || 0}</b><span>Tailored so far</span></div>
         <div class="stat" style="flex:1"><b>$${(s.spend_usd || 0).toFixed(2)}</b><span>Spent, all time</span></div>
       </div>
