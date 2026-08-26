@@ -243,29 +243,43 @@ group('The provider table itself');
       Object.entries(p.models).filter(([, m]) => !m.in || !m.out).map(([k]) => k).join(',') || 'all priced');
   }
 
-  // Both wires think before answering unless told not to, and thinking is spent
-  // out of max_tokens. The key check asks for one word in a small budget, so
-  // without this the whole budget goes on invisible reasoning, no text comes
-  // back, and a working key is rejected as broken.
+  // Every wire thinks before answering unless told not to, and thinking is
+  // spent out of max_tokens. The key check asks for one word in a small
+  // budget, so without this the whole budget goes on invisible reasoning, no
+  // text comes back, and a working key is rejected as broken. Different
+  // OpenAI-compatible backends spell "turn it down" differently — a flat
+  // reasoning_effort field on Gemini's own endpoint, a nested reasoning
+  // object on OpenRouter's (confirmed live 2026-08-26: OpenRouter silently
+  // ignores the flat field rather than erroring, so a request built for
+  // Gemini's shape looks fine and quietly keeps billing full reasoning on
+  // every OpenRouter call) — cheapReasoningPatch merges whichever shape a
+  // given provider actually needs, rather than assuming one field fits all.
   //
   // This only checks the request SHAPE, not whether the provider accepts the
-  // value — and that gap is exactly what broke a real key check live: the
-  // value was 'minimal', this test asserted 'minimal', and it stayed green
-  // while Gemini 3.7 Flash rejected 'minimal' outright with a 400 the moment
-  // the default model moved to it, since 'minimal' was never actually valid
-  // for that model. A unit test cannot catch a provider rejecting a literal
-  // value — only a live call can — so treat cheapReasoningValue as needing
-  // re-verification against the real API whenever the default model changes.
+  // patch's contents — and that gap is exactly what broke a real key check
+  // live once already: the value was 'minimal', a test asserted 'minimal',
+  // and it stayed green while Gemini 3.7 Flash rejected 'minimal' outright
+  // the moment the default model moved to it. A unit test cannot catch a
+  // provider rejecting a literal value — only a live call can — so treat
+  // every cheapReasoningPatch as needing re-verification against the real
+  // API whenever a default model changes.
   const thinkingOff = (id) => {
     const p = providers.get(id);
     const b = providers.buildRequest(id, { model: p.defaultModel, system: 's', user: 'u',
       maxTokens: 300, key: 'k', cheap: true }).body;
-    return p.wire === 'anthropic' ? b.thinking?.type === 'disabled' : b.reasoning_effort === p.cheapReasoningValue;
+    if (p.wire === 'anthropic') return b.thinking?.type === 'disabled';
+    const patch = p.cheapReasoningPatch || {};
+    return Object.keys(patch).every((k) => JSON.stringify(b[k]) === JSON.stringify(patch[k]));
   };
   ok('the key check turns thinking off on Claude', thinkingOff('anthropic'));
   ok('the key check turns thinking off on Gemini', thinkingOff('gemini'));
-  ok('gemini\'s cheap reasoning value is not the one confirmed broken live (2026-08-26)',
-    providers.get('gemini').cheapReasoningValue !== 'minimal');
+  ok('the key check turns thinking off on OpenRouter, in OpenRouter\'s own shape',
+    thinkingOff('openrouter'));
+  ok('gemini\'s cheap reasoning patch is not the value confirmed broken live (2026-08-26)',
+    providers.get('gemini').cheapReasoningPatch.reasoning_effort !== 'minimal');
+  ok('openrouter is not sent Gemini\'s flat field — confirmed live to be silently ignored, not an error',
+    !('reasoning_effort' in providers.buildRequest('openrouter',
+      { model: 'x', system: 's', user: 'u', maxTokens: 300, key: 'k', cheap: true }).body));
 
   // ...and leaves it alone for the work that actually needs it.
   const tailorBody = providers.buildRequest('anthropic', { model: 'claude-sonnet-5', system: 's',

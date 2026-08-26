@@ -37,19 +37,18 @@ const PROVIDERS = {
       return '';
     },
     defaultModel: 'gemini-3.7-flash',
-    // Confirmed live against the real API (2026-08-26): passing
-    // reasoning_effort on the OpenAI-compat endpoint stops Gemini burning its
-    // token budget on invisible thinking — used only for calls that do not
-    // need reasoning quality, like a key check. 'minimal' was the value here
-    // and was never re-checked when the default model moved to the 3.x
-    // family — Gemini 3.7 Flash rejects it outright ("Thinking level MINIMAL
-    // is not supported for this model"), which broke every key check on the
-    // new default. 'low' is confirmed live on 3.5 Flash-Lite, 3.6 Flash and
-    // 3.7 Flash; the model catalogue lists a value working, it does not mean
-    // that value works everywhere, so re-verify this if the model list here
-    // ever changes again.
-    cheapReasoningField: 'reasoning_effort',
-    cheapReasoningValue: 'low',
+    // Confirmed live against the real API (2026-08-26): reasoning_effort on
+    // the OpenAI-compat endpoint stops Gemini burning its token budget on
+    // invisible thinking — used only for calls that do not need reasoning
+    // quality, like a key check. 'minimal' was the value here and was never
+    // re-checked when the default model moved to the 3.x family — Gemini 3.7
+    // Flash rejects it outright ("Thinking level MINIMAL is not supported
+    // for this model"), which broke every key check on the new default.
+    // 'low' is confirmed live on 3.5 Flash-Lite, 3.6 Flash and 3.7 Flash; the
+    // model catalogue listing a model does not mean a given parameter value
+    // works on it, so re-verify this live if the model list here ever
+    // changes again.
+    cheapReasoningPatch: { reasoning_effort: 'low' },
     freeTier: true,
     freeNote: 'Google\'s free tier covers roughly 1,000 requests a day on Flash models. '
       + 'The figures below are what it would cost only if you turn on billing and go past that.',
@@ -120,6 +119,17 @@ const PROVIDERS = {
       + 'openrouter.ai/models for the ones live today and type the id in.',
     dataNote: 'Free models on OpenRouter generally allow the provider to train on what is sent. '
       + 'Tailoring sends your whole CV — prefer a paid model id if that matters to you.',
+    // OpenRouter does not speak the OpenAI-compatible reasoning_effort field
+    // its own /chat/completions endpoint otherwise mimics — confirmed live
+    // (2026-08-26): sending reasoning_effort is silently ignored (still 68
+    // reasoning tokens on a one-word reply), where its own nested
+    // reasoning.effort form drops that to 0. Worth writing down, because the
+    // silent-ignore is the dangerous failure mode here — an unrecognised
+    // field on some backends is a 400 that at least gets noticed; this one
+    // just quietly keeps billing full reasoning on every "cheap" call
+    // instead, on a route that fans out to whatever underlying model was
+    // picked, so the same object form is assumed to hold across models too.
+    cheapReasoningPatch: { reasoning: { effort: 'low' } },
     // Checked against openrouter.ai/api/v1/models on 2026-08-25. The two ':free'
     // ids that used to be here — openai/gpt-oss-120b:free and
     // deepseek/deepseek-chat:free — do not exist on OpenRouter at all any more,
@@ -204,8 +214,11 @@ function buildRequest(providerId, { model, system, user, maxTokens, key, cheap =
   // invisible "thinking" before answering, which starves a small max_tokens call
   // (like a key check) of any room for the actual answer. Turned down only for
   // calls that do not need reasoning quality, and only for a provider this has
-  // been proven to accept — an unrecognised field is a 400 on some backends.
-  if (cheap && p.cheapReasoningField) body[p.cheapReasoningField] = p.cheapReasoningValue || 'low';
+  // been proven to accept — different OpenAI-compatible backends spell "turn
+  // reasoning down" differently (a flat field here, a nested object there;
+  // see the per-provider comments), so this merges whatever shape that
+  // provider actually needs rather than assuming one field name fits all.
+  if (cheap && p.cheapReasoningPatch) Object.assign(body, p.cheapReasoningPatch);
 
   return { url: p.endpoint, headers: { Authorization: `Bearer ${key}` }, body };
 }
