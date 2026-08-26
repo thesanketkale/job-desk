@@ -218,7 +218,11 @@ function parseResponse(providerId, raw) {
 
   if (p.wire === 'anthropic') {
     const text = (res.content || []).filter((b) => b.type === 'text').map((b) => b.text).join('');
-    return { text, usage: res.usage || {} };
+    // 'max_tokens' means the reply was cut off mid-thought, not finished — the
+    // text that came back may look like valid JSON right up to where it stops
+    // and still fail to parse. Passed through so the caller can say that,
+    // rather than the generic "could not read the reply" it looked like before.
+    return { text, usage: res.usage || {}, stopReason: res.stop_reason };
   }
 
   const choice = (res.choices || [])[0];
@@ -240,7 +244,9 @@ function parseResponse(providerId, raw) {
   // when a provider omits total_tokens keeps this safe either way.
   const outputTok = totalTok > promptTok + visibleTok ? totalTok - promptTok : visibleTok;
 
-  return { text, usage: { input_tokens: promptTok, output_tokens: outputTok } };
+  // OpenAI-compatible finish_reason: 'length' is this wire's equivalent of
+  // Anthropic's 'max_tokens' — the reply was cut off, not finished.
+  return { text, usage: { input_tokens: promptTok, output_tokens: outputTok }, stopReason: choice.finish_reason };
 }
 
 /** Pulls the live model list, so a stale table here is never the only source. */

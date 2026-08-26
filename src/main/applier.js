@@ -120,14 +120,31 @@ function save(id, fields) {
   return get(id);
 }
 
-/** How many more applications may go out today. */
+/**
+ * How many more messages — applications or follow-ups — may go out today.
+ *
+ * Both count against the same cap: it exists to protect one mailbox from
+ * sending too much in a day, and a follow-up is exactly as much an email as
+ * an application is. Follow-ups used to send with no cap at all, so a day
+ * that used up the application limit could still send an unbounded number of
+ * follow-ups on top of it — the one rail CLAUDE.md says everything that can
+ * send must go through, quietly not applying to half of what can send.
+ *
+ * 'localtime' matters here: SQLite's bare date('now') is UTC, so a cap meant
+ * to reset once a day was actually resetting at 05:30 IST, mid-afternoon for
+ * anyone in India — the exact audience this app is built for.
+ */
 function remainingToday() {
   const cap = Number(settings.get('max_sends_per_day', 12));
-  const used = db.val(
+  const usedApplications = db.val(
     `SELECT COUNT(*) AS n FROM applications
-     WHERE status IN (${SENT_STATES.map(() => '?').join(',')}) AND date(sent_at) = date('now')`,
+     WHERE status IN (${SENT_STATES.map(() => '?').join(',')}) AND date(sent_at, 'localtime') = date('now', 'localtime')`,
     SENT_STATES, 0);
-  return Math.max(0, cap - Number(used));
+  const usedFollowups = db.val(
+    `SELECT COUNT(*) AS n FROM followups
+     WHERE status = 'sent' AND date(sent_at, 'localtime') = date('now', 'localtime')`,
+    [], 0);
+  return Math.max(0, cap - Number(usedApplications) - Number(usedFollowups));
 }
 
 /** Every rail lives here, not in the interface, so nothing can route around them. */

@@ -15,6 +15,40 @@ const ACCENT = '#3f5d4b';
 
 const flat = (s) => String(s || '').replace(/\s+/g, ' ').trim();
 
+/**
+ * Windows-1252 (WinAnsi) — all an unembedded standard font like Helvetica can
+ * encode: ASCII, Latin-1 supplement, and a fixed set of typographic
+ * characters remapped into the 0x80-0x9F control range. pdfkit does not
+ * reject or warn on anything outside that; it silently reinterprets each
+ * UTF-16 code unit as a WinAnsi byte instead. Confirmed live: rendering
+ * "₹50,000 and नमस्ते" came back, read straight out of the produced PDF, as
+ * "¹50,000 and '‰."‰M'IG" — a different, wrong-looking result with no error
+ * anywhere, in a document that goes to a real employer as the person's CV.
+ */
+const WINANSI_EXTRA = new Set([0x20AC, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6,
+  0x2030, 0x0160, 0x2039, 0x0152, 0x017D, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014,
+  0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x017E, 0x0178]);
+const winAnsiSafe = (code) => code <= 0x7F || (code >= 0xA0 && code <= 0xFF) || WINANSI_EXTRA.has(code);
+
+// A handful of substitutions read better than the generic fallback below.
+const TRANSLITERATE = { '₹': 'Rs. ' };   // ₹ — common in an Indian salary figure
+
+/**
+ * Replaces anything the font cannot encode with a visible placeholder rather
+ * than letting it silently become a different, wrong character. Iterates by
+ * code point (`for...of` on a string), not UTF-16 unit, so a surrogate pair
+ * — an emoji, say — is judged and replaced as one character, not two.
+ */
+function sanitizeForPdf(s) {
+  const str = String(s ?? '');
+  let out = '';
+  for (const ch of str) {
+    if (TRANSLITERATE[ch]) { out += TRANSLITERATE[ch]; continue; }
+    out += winAnsiSafe(ch.codePointAt(0)) ? ch : '?';
+  }
+  return out;
+}
+
 function render(cv, outPath) {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({
@@ -22,6 +56,12 @@ function render(cv, outPath) {
       margins: { top: 48, bottom: 46, left: 46, right: 46 },
       info: { Title: `${cv.name} — CV`, Author: cv.name, Creator: 'Job Desk' },
     });
+    // Patched once, here, rather than wrapping every call site in flat() or a
+    // sanitizer by hand — several calls below (the name, job titles, schools)
+    // pass user data straight through without going via flat() at all, and a
+    // per-call-site approach only works until the next one forgets to.
+    const rawText = doc.text.bind(doc);
+    doc.text = (text, ...rest) => rawText(sanitizeForPdf(text), ...rest);
     const stream = fs.createWriteStream(outPath);
     stream.on('finish', () => resolve(outPath));
     stream.on('error', reject);
@@ -184,4 +224,4 @@ function render(cv, outPath) {
   });
 }
 
-module.exports = { render };
+module.exports = { render, sanitizeForPdf };

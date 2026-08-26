@@ -23,7 +23,8 @@ const score = require('../src/main/score');
 const claude = require('../src/main/ai');
 const settings = require('../src/main/settings');
 const seed = require('../src/main/seed');
-const { buildScript } = require('../src/main/autofill-script');
+const { buildScript, buildFileInputMatchScript } = require('../src/main/autofill-script');
+const { pickResumeTargets } = require('../src/main/apply-browser');
 
 /* ------------------------------------------------------------ normalize */
 group('Reading messy feed data');
@@ -260,6 +261,35 @@ group('The provider table itself');
   ok('tailoring still gets to think', tailorBody.thinking === undefined);
 }
 
+/* A reply cut off mid-JSON almost always fails to parse anyway — the point of
+   carrying stopReason through is a specific, actionable message ("cut off,
+   try again or use a stronger model") instead of a generic "could not read
+   the reply", which used to look identical to a model that just replied with
+   nonsense. */
+group('Telling a cut-off reply apart from a genuinely unreadable one');
+{
+  const anthropicCutOff = providers.parseResponse('anthropic', {
+    content: [{ type: 'text', text: '{"resume": {"name": "incomplete' }],
+    usage: { input_tokens: 100, output_tokens: 8000 },
+    stop_reason: 'max_tokens',
+  });
+  ok('Anthropic: a max_tokens stop is reported', anthropicCutOff.stopReason === 'max_tokens');
+
+  const anthropicFinished = providers.parseResponse('anthropic', {
+    content: [{ type: 'text', text: '{"ok":true}' }],
+    usage: { input_tokens: 10, output_tokens: 5 },
+    stop_reason: 'end_turn',
+  });
+  ok('Anthropic: a normal finish is reported too, not mistaken for a cut-off',
+    anthropicFinished.stopReason === 'end_turn');
+
+  const openaiCutOff = providers.parseResponse('gemini', {
+    choices: [{ message: { content: '{"resume": {"name": "incomplete' }, finish_reason: 'length' }],
+    usage: { prompt_tokens: 100, completion_tokens: 8000 },
+  });
+  ok('the OpenAI-compatible wire reports "length" the same way', openaiCutOff.stopReason === 'length');
+}
+
 /* ------------------------------------------------------------- secrets */
 group('Keeping credentials out of the open');
 seed.seedIfEmpty();
@@ -271,6 +301,28 @@ ok('secrets never appear in settings', !dump.includes('supersecret') && !dump.in
 ok('the app can still tell a key is set', settings.redacted().has_anthropic_key === true);
 settings.setSecret('anthropic_api_key', '');
 ok('clearing a secret works', settings.getSecret('anthropic_api_key') === null);
+
+/* A secret encrypted under one Windows account cannot be decrypted under
+   another — copying a portable install's data folder to a different machine
+   or user is the ordinary way this happens. hasSecret() still says "yes,
+   saved" (the row is genuinely there); deadSecrets() is what tells the two
+   situations apart, so the interface can say "re-enter this" instead of a
+   provider failing later for what looks like an unrelated reason. Simulated
+   here rather than through real safeStorage, which needs Electron: a row
+   claiming OS encryption that this plain-Node test process cannot possibly
+   decrypt reproduces the same failure this is guarding against. */
+db.run("INSERT INTO settings (k, v, updated_at) VALUES (?, ?, datetime('now')) "
+  + 'ON CONFLICT(k) DO UPDATE SET v = excluded.v',
+  ['secret:test_dead_key', JSON.stringify({ enc: 'os', data: 'not-a-real-encrypted-blob' })]);
+ok('a secret that exists but cannot be decrypted still reports as saved',
+  settings.hasSecret('test_dead_key'));
+ok('reading it back fails safely instead of throwing',
+  settings.getSecret('test_dead_key', 'FALLBACK') === 'FALLBACK');
+ok('and it is flagged as unreadable on this computer',
+  settings.deadSecrets().includes('test_dead_key'));
+settings.setSecret('smtp_password', 'a-working-password');
+settings.getSecret('smtp_password');
+ok('a secret that reads back fine is never flagged', !settings.deadSecrets().includes('smtp_password'));
 
 /* ----------------------------------------------------------- database */
 group('The local database');
@@ -664,6 +716,68 @@ ok('the script is built', src.includes('Srishti') && src.length > 1000);
 ok('it never presses submit', !/\.submit\(|click\(\)/.test(src));
 ok('it embeds the details safely', src.includes('"firstName":"Srishti"'));
 
+/* attachResume() used to attach the CV to every file input on the page —
+   harmless on a form with one upload field, wrong on any form with a
+   separate cover-letter or portfolio field, which received the CV too. */
+group('Choosing which file field the CV belongs in');
+{
+  const vm = require('node:vm');
+  const fakeFileInput = (label = '', name = '') => ({
+    name, id: '', placeholder: '',
+    getAttribute: (attr) => (attr === 'aria-label' ? label : null),
+    closest: () => null,
+  });
+
+  const runMatcher = (inputs) => {
+    const context = { document: { querySelectorAll: (sel) => (sel === 'input[type=file]' ? inputs : []) } };
+    vm.createContext(context);
+    return vm.runInContext(buildFileInputMatchScript(), context);
+  };
+
+  const result = runMatcher([
+    fakeFileInput('', 'resume'),
+    fakeFileInput('Cover Letter'),
+    fakeFileInput('Portfolio link (optional)'),
+    fakeFileInput('Attachment'),
+  ]);
+  ok('a field literally named "resume" is recognised', result[0].resume === true, JSON.stringify(result[0]));
+  ok('a cover-letter field is excluded, not mistaken for the resume field',
+    result[1].resume === false && result[1].exclude === true, JSON.stringify(result[1]));
+  ok('a portfolio field is excluded too', result[2].exclude === true, JSON.stringify(result[2]));
+  ok('a field with no signal either way is neither', !result[3].resume && !result[3].exclude,
+    JSON.stringify(result[3]));
+
+  // pickResumeTargets() is what turns that per-field read into which CDP
+  // nodeIds actually get the file — one clear resume field wins outright,
+  // even with other, non-excluded fields also present.
+  ok('the CV goes only to the field that reads as the résumé one',
+    JSON.stringify(pickResumeTargets([10, 20, 30, 40], result)) === JSON.stringify([10]));
+  ok('with no CV-labelled field, cover-letter and portfolio fields are skipped, the plain one is not',
+    JSON.stringify(pickResumeTargets([20, 30, 40], result.slice(1))) === JSON.stringify([40]));
+  ok('a mismatched match count falls back to every field, same as before this existed',
+    JSON.stringify(pickResumeTargets([1, 2, 3], [])) === JSON.stringify([1, 2, 3]));
+  ok('every field excluded still attaches somewhere rather than nowhere',
+    JSON.stringify(pickResumeTargets([1, 2], [{ exclude: true }, { exclude: true }])) === JSON.stringify([1, 2]));
+}
+
+/* pdfkit's unembedded standard fonts can only encode Windows-1252 — anything
+   else used to come out as a silently different, wrong-looking character
+   with no error anywhere, in a document that goes to a real employer. */
+group('Making sure the PDF never renders a character it cannot encode');
+{
+  const { sanitizeForPdf } = require('../src/main/resume-pdf');
+  ok('plain ASCII is untouched', sanitizeForPdf('Software Engineer, 8 years') === 'Software Engineer, 8 years');
+  ok('an accented Latin-1 letter survives', sanitizeForPdf('Café') === 'Café');
+  ok('an em dash survives — it is in WinAnsi\'s extra range',
+    sanitizeForPdf('2019—2023') === '2019—2023');
+  ok('a rupee sign is transliterated, not garbled', sanitizeForPdf('₹50,000') === 'Rs. 50,000');
+  ok('a script this font cannot draw becomes a visible placeholder, not a wrong character',
+    sanitizeForPdf('नमस्ते') === '??????');
+  ok('an emoji (a surrogate pair) becomes exactly one placeholder, not two',
+    sanitizeForPdf('CV 😀') === 'CV ?');
+  ok('empty and missing input do not throw', sanitizeForPdf('') === '' && sanitizeForPdf(undefined) === '');
+}
+
 /* -------------------------------------------------------- documents */
 group('Making the CV files');
 (async () => {
@@ -721,6 +835,72 @@ group('Making the CV files');
   ok('and both qualifications, not one per line',
     fromPdfCv.education.length === master.education.length,
     String(fromPdfCv.education.length));
+
+  /* ---------------------------------------------------- sending rails ---- */
+  group('The daily send cap covers follow-ups, not just applications');
+  {
+    const applier = require('../src/main/applier');
+    const followupsMod = require('../src/main/followups');
+
+    const jobId = db.insert('jobs', {
+      fingerprint: `rails-test-${Date.now()}`, title: 'Rails Test Role', company: 'Rails Test Co',
+    });
+    const appId = db.insert('applications', {
+      job_id: jobId, status: 'draft', to_email: 'someone@example.com',
+    });
+    const fuId = db.insert('followups', {
+      application_id: appId, seq: 1, due_on: '2020-01-01', status: 'scheduled',
+      subject: 'Following up', body_text: 'A real follow-up body.',
+    });
+    const sqlNow = () => db.val("SELECT datetime('now') AS x", [], '');
+
+    settings.set('max_sends_per_day', 5);
+    ok('a fresh day has the full cap available', applier.remainingToday() === 5, String(applier.remainingToday()));
+
+    db.update('applications', { status: 'sent', sent_at: sqlNow() }, 'id = ?', [appId]);
+    ok('a sent application counts against the cap', applier.remainingToday() === 4, String(applier.remainingToday()));
+
+    // A sent follow-up used to count for nothing at all — the actual bug:
+    // followups.send() called mailer.send() directly, bypassing every rail in
+    // applier.js, so the daily cap could be exhausted by applications and then
+    // sailed straight through by an unlimited number of follow-ups on top.
+    db.insert('followups', {
+      application_id: appId, seq: 2, due_on: '2020-01-01', status: 'sent', sent_at: sqlNow(),
+      subject: 'x', body_text: 'x',
+    });
+    ok('a sent follow-up also counts against the same cap',
+      applier.remainingToday() === 3, String(applier.remainingToday()));
+
+    // Exhaust the cap, then prove followups.send() refuses before it ever
+    // reaches the mailbox. No SMTP is configured anywhere in this test file,
+    // so a check that let the send through would fail with mailer's "no
+    // outgoing mail server" error instead of a cap message — the two are
+    // distinguishable, which is what makes this a real test of ordering, not
+    // just of the final outcome.
+    settings.set('max_sends_per_day', 0);
+    let capMessage = '';
+    try { await followupsMod.send(fuId); } catch (err) { capMessage = err.message; }
+    ok('an exhausted cap blocks a follow-up before it reaches the mailbox',
+      /limit/i.test(capMessage), capMessage);
+
+    // Raise the cap back and confirm the guard only blocks when it should —
+    // the send now proceeds far enough to reach the mailbox, which then fails
+    // for the unrelated reason of there being no mailbox configured, proving
+    // the cap check discriminates rather than always refusing. smtp_host is
+    // cleared first and on purpose: an earlier group's seedMailboxFromCv()
+    // already populated it from the fixture CV's .test address, and this
+    // machine's network resolves and answers that host — npm test is meant
+    // to need no network at all, so this forces mailer's local, offline
+    // "no mailbox configured" error rather than a real connection attempt.
+    settings.set('smtp_host', '');
+    settings.set('max_sends_per_day', 50);
+    let pastCapMessage = '';
+    try { await followupsMod.send(fuId); } catch (err) { pastCapMessage = err.message; }
+    ok('a cap with room left does not block the send',
+      /outgoing mail server/i.test(pastCapMessage), pastCapMessage);
+
+    settings.set('max_sends_per_day', 12);
+  }
 
   /* ------------------------------------------------ checking an API key ---- */
   group('Checking an API key before saving it');

@@ -92,10 +92,16 @@ function cost(usage = {}, m = model()) {
   return (inTok / 1e6) * p.in + (outTok / 1e6) * p.out;
 }
 
+// 16000 matches ai.js#tailor()'s max_tokens — the largest single request this
+// app makes. Kept in step with it on purpose: a smaller figure here would
+// under-estimate the true worst case and let checkBeforeCall() through on a
+// request that could still blow past the monthly cap.
+const WORST_CASE_OUTPUT_TOKENS = 16000;
+
 /** A deliberately generous estimate, used to refuse a call before making it. */
 function worstCaseCost(m = model()) {
   const p = priceOf(m);
-  return (12000 / 1e6) * p.in + (8000 / 1e6) * p.out;
+  return (12000 / 1e6) * p.in + (WORST_CASE_OUTPUT_TOKENS / 1e6) * p.out;
 }
 
 const ledger = () => settings.get('spend_by_month', {}) || {};

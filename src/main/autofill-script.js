@@ -4,6 +4,30 @@
  * It fills fields; it never clicks submit. A mis-parsed field that gets sent
  * cannot be recalled, so the last click stays human.
  */
+
+/**
+ * Shared by every script in this file: works out what a field is asking for
+ * from its name, id, placeholder, aria attributes, associated <label>, and
+ * the surrounding wrapper's text. Interpolated as source rather than called,
+ * since these strings are evaluated inside the page, not in this process.
+ */
+const LABEL_FOR_SRC = `
+  const labelFor = (el) => {
+    const bits = [el.name, el.id, el.placeholder, el.getAttribute('aria-label'), el.getAttribute('data-testid')];
+    const labelledBy = el.getAttribute('aria-labelledby');
+    if (labelledBy) {
+      for (const id of labelledBy.split(/\\s+/)) {
+        const n = document.getElementById(id);
+        if (n) bits.push(n.innerText);
+      }
+    }
+    if (el.labels) for (const l of el.labels) bits.push(l.innerText);
+    const wrap = el.closest('label, .field, [class*="field"], [class*="question"], [class*="form-group"]');
+    if (wrap) bits.push((wrap.innerText || '').slice(0, 200));
+    return bits.filter(Boolean).join(' ').toLowerCase();
+  };
+`;
+
 function buildScript(profile) {
   const source = `(() => {
   const P = ${JSON.stringify(profile)};
@@ -30,20 +54,7 @@ function buildScript(profile) {
       v: P.coverLetter, long: true },
   ];
 
-  const labelFor = (el) => {
-    const bits = [el.name, el.id, el.placeholder, el.getAttribute('aria-label'), el.getAttribute('data-testid')];
-    const labelledBy = el.getAttribute('aria-labelledby');
-    if (labelledBy) {
-      for (const id of labelledBy.split(/\\s+/)) {
-        const n = document.getElementById(id);
-        if (n) bits.push(n.innerText);
-      }
-    }
-    if (el.labels) for (const l of el.labels) bits.push(l.innerText);
-    const wrap = el.closest('label, .field, [class*="field"], [class*="question"], [class*="form-group"]');
-    if (wrap) bits.push((wrap.innerText || '').slice(0, 200));
-    return bits.filter(Boolean).join(' ').toLowerCase();
-  };
+  ${LABEL_FOR_SRC}
 
   const setValue = (el, value) => {
     if (!value || String(el.value || '').trim()) return false;
@@ -100,9 +111,30 @@ function buildScript(profile) {
   return source;
 }
 
+/**
+ * Returned as a string and evaluated ahead of attaching the CV. Reports, for
+ * every file-upload field on the page in document order, whether its label
+ * reads as the resume/CV field and whether it reads as clearly something
+ * else (a cover letter, a portfolio, a photo). apply-browser.js#attachResume
+ * used to put the CV into every file input on a page indiscriminately —
+ * harmless on the common one-upload form, wrong on any form with a separate
+ * cover-letter or portfolio field, which then received the CV file too.
+ */
+function buildFileInputMatchScript() {
+  return `(() => {
+  ${LABEL_FOR_SRC}
+  const RESUME_RE = /\\bresume\\b|\\bcv\\b|curriculum vitae/i;
+  const EXCLUDE_RE = /cover\\s*letter|portfolio|writing sample|transcript|photo|headshot|video/i;
+  return [...document.querySelectorAll('input[type=file]')].map((el) => {
+    const hay = labelFor(el);
+    return { resume: RESUME_RE.test(hay), exclude: EXCLUDE_RE.test(hay) };
+  });
+})()`;
+}
+
 /** Marks the fields the app touched, so she can see them at a glance. */
 const HIGHLIGHT_CSS = `
   [data-jobdesk-filled] { background-color: rgba(63,93,75,.06) !important; }
 `;
 
-module.exports = { buildScript, HIGHLIGHT_CSS };
+module.exports = { buildScript, buildFileInputMatchScript, HIGHLIGHT_CSS };

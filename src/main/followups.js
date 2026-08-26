@@ -73,9 +73,20 @@ async function draft(followupId) {
 
 async function send(followupId, overrides = {}) {
   const mailer = require('./mailer');
+  // Lazy for the same reason draft()'s requires are lazy: applier.js requires
+  // this file at the top of its own module, so requiring applier back at the
+  // top of this one would hand it an empty, not-yet-populated exports object.
+  const applier = require('./applier');
   const f = db.get('SELECT * FROM followups WHERE id = ?', [followupId]);
   if (!f) throw new Error('That follow-up is no longer scheduled.');
   if (f.status !== 'scheduled') throw new Error('That follow-up has already been dealt with.');
+
+  // The one rail this used to skip entirely: a follow-up is exactly as much an
+  // email as an application is, and applier.remainingToday() counts both
+  // against the same daily cap — see the comment there.
+  if (applier.remainingToday() <= 0) {
+    throw new Error(`Today's limit of ${settings.get('max_sends_per_day', 12)} messages is used up.`);
+  }
 
   const a = db.get('SELECT * FROM applications WHERE id = ?', [f.application_id]);
   const job = db.get('SELECT * FROM jobs WHERE id = ?', [a.job_id]);

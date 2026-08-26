@@ -133,8 +133,16 @@ async function call(system, user, maxTokens = 8000, opts = {}) {
 
   if (out.error) throw new Error(friendlyError(out.error, p, model));
   if (!out.text) throw new Error(`${p.label} replied with nothing usable. Try that role again.`);
-  return { text: out.text, usage: out.usage || {}, model };
+  return { text: out.text, usage: out.usage || {}, model, stopReason: out.stopReason };
 }
+
+/** 'max_tokens' (Anthropic) and 'length' (the OpenAI-compatible wire) both
+ *  mean the same thing: the reply stopped because it ran out of room, not
+ *  because it was finished. Text cut off mid-JSON usually still fails to
+ *  parse, which is what made this worth telling apart from a genuinely
+ *  unreadable reply — the fix is more room or a stronger model, not a retry
+ *  of the same request. */
+const wasTruncated = (stopReason) => stopReason === 'max_tokens' || stopReason === 'length';
 
 /** The provider's complaint, turned into something worth reading. */
 function friendlyError(message, p, model) {
@@ -231,14 +239,17 @@ function enforceResumeTruth(rawText, cv) {
  */
 async function structureResume(rawText, fallback = null) {
   const text = String(rawText || '').slice(0, 24000);
-  const { text: reply, usage, model } = await call(RESUME_SYSTEM, `RESUME:\n${text}`, 8000);
+  const { text: reply, usage, model, stopReason } = await call(RESUME_SYSTEM, `RESUME:\n${text}`, 8000);
   budget.record(usage, model, 'resume import');
 
   const out = extractJson(reply);
   if (!out || !out.name) {
     if (fallback) return fallback;
-    throw new Error(`${budget.provider().label} could not read that resume. `
-      + 'Check the text, or edit the details by hand.');
+    throw new Error(wasTruncated(stopReason)
+      ? `${budget.provider().label} cut its reply off before it finished reading that resume — it may be `
+        + 'unusually long. Try again, or edit the details by hand.'
+      : `${budget.provider().label} could not read that resume. `
+        + 'Check the text, or edit the details by hand.');
   }
   enforceResumeTruth(text, out);
   if (!out.name && fallback) out.name = fallback.name;
@@ -261,14 +272,24 @@ Source: ${job.source_label || ''}
 DESCRIPTION:
 ${jd}`;
 
-  const { text, usage, model } = await call(SYSTEM, user);
+  // 16000 rather than the usual 8000: a tailored CV plus cover letter plus
+  // email is already a substantial JSON reply, and Claude 5 / Gemini 3.x think
+  // before answering by default — that reasoning is spent out of the same
+  // budget, so 8000 left too little room for the actual output on a long CV
+  // or a long job description, cutting the reply off mid-JSON. It still
+  // always fails to parse when that happens; the point is to say so
+  // specifically rather than blame the app for "something unreadable".
+  const { text, usage, model, stopReason } = await call(SYSTEM, user, 16000);
   const spend = budget.record(usage, model, 'tailor');
   const out = extractJson(text);
   if (!out?.resume) {
     // Weaker and free models are markedly worse at returning clean JSON, so this
     // says which service produced the mess rather than blaming the app.
-    throw new Error(`${budget.provider().label} replied with something the app could not read. `
-      + 'Try that role again, or pick a stronger model in Settings.');
+    throw new Error(wasTruncated(stopReason)
+      ? `${budget.provider().label} cut the reply off before it finished — the CV or job description may `
+        + 'be unusually long. Try that role again, or pick a stronger model in Settings.'
+      : `${budget.provider().label} replied with something the app could not read. `
+        + 'Try that role again, or pick a stronger model in Settings.');
   }
 
   const dropped = enforceTruth(master, out.resume);

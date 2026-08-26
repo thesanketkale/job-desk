@@ -8,7 +8,7 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { BrowserWindow, WebContentsView, session, shell, dialog } = require('electron');
-const { buildScript, HIGHLIGHT_CSS } = require('./autofill-script');
+const { buildScript, buildFileInputMatchScript, HIGHLIGHT_CSS } = require('./autofill-script');
 
 const TOOLBAR_H = 96;
 let win = null;
@@ -44,7 +44,9 @@ function open(ctx, parent) {
         preload: path.join(__dirname, '..', 'preload', 'apply-preload.js'),
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: false,
+        // apply-preload.js only uses contextBridge/ipcRenderer too — same
+        // reasoning as the main window in main.js.
+        sandbox: true,
       },
     });
     win.setMenuBarVisibility(false);
@@ -131,6 +133,14 @@ async function attachResume(which = 'pdf') {
   const file = which === 'docx' ? context.docxPath : context.pdfPath;
   if (!file || !fs.existsSync(file)) throw new Error('The tailored CV file is missing. Regenerate it from the board.');
 
+  // What each file input on the page looks like it is for — a cover letter or
+  // portfolio field reads differently from a resume/CV one. A failure here
+  // (page not ready, CSP oddity) is not fatal: pickResumeTargets() falls back
+  // to the old attach-everywhere behaviour when it has nothing to go on.
+  let matches = [];
+  try { matches = await view.webContents.executeJavaScript(buildFileInputMatchScript(), true); }
+  catch { /* fall through with an empty match list */ }
+
   const dbg = view.webContents.debugger;
   let attachedHere = false;
   try {
@@ -142,7 +152,7 @@ async function attachResume(which = 'pdf') {
     if (!nodeIds?.length) throw new Error('This page has no file upload field on it right now.');
 
     let count = 0;
-    for (const nodeId of nodeIds) {
+    for (const nodeId of pickResumeTargets(nodeIds, matches)) {
       try {
         await dbg.sendCommand('DOM.setFileInputFiles', { files: [file], nodeId });
         count++;
@@ -153,6 +163,27 @@ async function attachResume(which = 'pdf') {
   } finally {
     if (attachedHere && dbg.isAttached()) { try { dbg.detach(); } catch { /* already gone */ } }
   }
+}
+
+/**
+ * Chooses which of the page's file inputs the CV actually belongs in. This
+ * used to attach to every `input[type=file]` on the page unconditionally —
+ * harmless on the common one-upload form, wrong on any form with a separate
+ * cover-letter or portfolio field, which received the CV file too.
+ *
+ * `matches[i]` describes the i-th `input[type=file]` in document order, read
+ * moments earlier by `buildFileInputMatchScript()`; `nodeIds` is the same
+ * selector's result from CDP, taken now. The two only line up if the DOM has
+ * not changed in between, which `nodeIds.length === matches.length` is the
+ * cheap way to notice. Whenever they disagree, or nothing was detected at
+ * all, every input is targeted — never worse off than before this existed.
+ */
+function pickResumeTargets(nodeIds, matches) {
+  if (matches.length !== nodeIds.length) return nodeIds;
+  const resumeOnly = nodeIds.filter((_, i) => matches[i]?.resume);
+  if (resumeOnly.length) return resumeOnly;
+  const notExcluded = nodeIds.filter((_, i) => !matches[i]?.exclude);
+  return notExcluded.length ? notExcluded : nodeIds;
 }
 
 function revealResume(which = 'pdf') {
@@ -191,4 +222,5 @@ async function confirmSubmitted(parent) {
 }
 
 module.exports = { open, fillForm, attachResume, revealResume, nav, close, confirmSubmitted, publicContext,
+  pickResumeTargets,
   get isOpen() { return !!(win && !win.isDestroyed()); } };
