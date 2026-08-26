@@ -317,6 +317,31 @@ group('Telling a cut-off reply apart from a genuinely unreadable one');
   ok('the OpenAI-compatible wire reports "length" the same way', openaiCutOff.stopReason === 'length');
 }
 
+/* electron-builder deletes the whole `build` block when it packages the app, so
+   anything the updater needs must come from a key that survives that. This is the
+   packaged shape: no build, only updates. Getting {} here is what made every
+   check on the private repository run unauthenticated. */
+group('Update feed');
+{
+  // The packaged shape: electron-builder deletes the whole `build` block, so
+  // only `updates` survives. Resolving to nothing here is what made every check
+  // on the private repository run unauthenticated, against releases.atom.
+  const packaged = { updates: { channel: 'github-public',
+    releasesPage: 'https://github.com/thesanketkale/job-desk/releases' } };
+  const t1 = updater.githubTarget(packaged);
+  ok('the repository resolves once build.publish is stripped away',
+    t1.owner === 'thesanketkale' && t1.repo === 'job-desk', JSON.stringify(t1));
+
+  const checkout = { build: { publish: [{ provider: 'github', owner: 'someone', repo: 'thing' }] } };
+  const t2 = updater.githubTarget(checkout);
+  ok('a checkout with no releases page still falls back to build.publish',
+    t2.owner === 'someone' && t2.repo === 'thing', JSON.stringify(t2));
+
+  const t3 = updater.githubTarget();
+  ok('this repository resolves to a real owner and repo as it ships', !!(t3.owner && t3.repo),
+    JSON.stringify(t3));
+}
+
 /* electron-updater's getLatestVersionInfo() wraps ANY failure in the same
    "Unable to find latest version on GitHub ... please ensure a production
    release exists" framing before the real HttpError — confirmed live with a

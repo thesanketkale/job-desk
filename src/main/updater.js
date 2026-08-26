@@ -38,17 +38,40 @@ let lastCheck = null;   // { at, ok, message } — so a silent background failur
 // repository and the old message blamed the repository's permissions for what
 // was really a credential that never left the database.
 let feedHasToken = false;
+// Set only when applyFeed() ran and could not work out which repository to
+// check. electron-updater then silently falls back to the bundled
+// app-update.yml — which carries no token — so the 404 that follows is nothing
+// to do with the credential, and must not be reported as though it were.
+let feedUnresolved = false;
 
-function config() {
-  let pkg = {};
-  try { pkg = require('../../package.json'); } catch { /* running from an odd place */ }
-  return { channel: 'off', url: '', releasesPage: '', ...(pkg.updates || {}) };
+function pkgJson() {
+  try { return require('../../package.json'); } catch { return {}; }   // running from an odd place
 }
 
-/** owner/repo come from the same publish block electron-builder already uses. */
-function githubTarget() {
-  let pkg = {};
-  try { pkg = require('../../package.json'); } catch { /* running from an odd place */ }
+function config() {
+  return { channel: 'off', url: '', releasesPage: '', ...(pkgJson().updates || {}) };
+}
+
+/**
+ * owner/repo for the releases feed.
+ *
+ * NOT from `build.publish`, however obvious that looks: electron-builder
+ * DELETES the entire `build` block from package.json when it packages the app
+ * (app-builder-lib's fileTransformer strips "build" along with "dist",
+ * "gitHead" and the rest of its ignored list). So reading the publish config
+ * resolves in a checkout and resolves to nothing in the installed app — the
+ * only place updates actually run. applyFeed() then bailed before it ever set
+ * a feed, electron-updater fell back to the bundled app-update.yml, which
+ * carries no token, and every check on a private repository 404'd against the
+ * unauthenticated `releases.atom` feed while Settings blamed the token.
+ *
+ * `updates` is a custom top-level key, so it survives packaging untouched, and
+ * the releases page URL already in it names the repository. build.publish stays
+ * as the fallback for a checkout that has not filled the URL in.
+ */
+function githubTarget(pkg = pkgJson()) {
+  const page = /github\.com\/([^\/\s]+)\/([^\/\s]+)/i.exec(pkg.updates?.releasesPage || '');
+  if (page) return { owner: page[1], repo: page[2].replace(/\.git$/, '') };
   const publish = [].concat(pkg.build?.publish || []).find((p) => (p.provider || p) === 'github');
   return { owner: publish?.owner || '', repo: publish?.repo || '' };
 }
@@ -68,10 +91,11 @@ function applyFeed() {
     return;
   }
   const { owner, repo } = githubTarget();
-  if (!owner || !repo) return;
+  if (!owner || !repo) { feedUnresolved = true; return; }
   const token = settings.getSecret('github_pat', '');
   feedHasToken = !!token;
   autoUpdater.setFeedURL({ provider: 'github', owner, repo, private: !!token, token: token || undefined });
+  feedUnresolved = false;
 }
 
 function init(getWindow) {
@@ -161,6 +185,10 @@ function friendlyUpdateError(err) {
       + 'Ask Sanket for a rebuilt release, or install the newest version by hand.';
   }
   if (/404|not.?found/i.test(m)) {
+    if (feedUnresolved) {
+      return 'This build could not work out which repository to check, so it asked GitHub '
+        + 'without a token. Ask Sanket for a rebuilt version.';
+    }
     // feedHasToken, not hasToken(): the question is whether the request that
     // just 404'd actually carried a token, not whether one is on file.
     if (!feedHasToken) {
@@ -208,5 +236,5 @@ async function checkNow() {
   }
 }
 
-module.exports = { init, checkNow, enabled, config, hasToken, applyFeed, friendlyUpdateError,
+module.exports = { init, checkNow, enabled, config, hasToken, applyFeed, friendlyUpdateError, githubTarget,
   get lastCheck() { return lastCheck; } };
