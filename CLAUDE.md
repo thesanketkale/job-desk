@@ -148,6 +148,21 @@ across many boards at once. Added alongside "Free Y Combinator Jobs API"
 observed response, so `mapYcJob` leaves `description_html` empty rather than
 substituting company-level metadata that describes the employer, not the role.
 
+**A source can be technically sound and still wrong for this app's one
+user.** USAJOBS (`data.usajobs.gov`) was implemented in the very first commit
+— a working adapter, correct `Authorization-Key`/`User-Agent` auth, proper
+quota handling — and then never finished: no seed row, no Settings fields for
+its two-part credential, never wired into source activation. Every source
+added since got a commit that finished all four pieces at once; USAJOBS
+didn't, and sat unfinished rather than rejected until someone asked why. It
+is removed outright, not just left unfinished, because the reason is not
+fixable the way Careerjet's or a RapidAPI reseller's was: USAJOBS is
+exclusively US federal government postings, and the large majority require
+US citizenship or existing federal work authorization — which this app's
+audience does not have. A working adapter for a source whose results are
+mostly roles she cannot legally apply to is board-clutter with good code
+underneath, not a partially-finished feature worth completing.
+
 **The app works with no API key.** `templates.js` is the free path; `applier.prepare()`
 branches on `ai.available()` and both branches return the same shape. Any new
 feature that only works with a key needs a template fallback or a clear reason.

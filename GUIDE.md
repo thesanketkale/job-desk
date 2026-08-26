@@ -78,7 +78,7 @@ Everything below works with no payment and no AI key at all.
 
 | | |
 |---|---|
-| **Finding jobs** | Adzuna, Remotive, RemoteOK, Himalayas, Arbeitnow, USAJOBS, any company's own careers page on Greenhouse, Lever, Ashby or Workable, and any RSS or Atom feed |
+| **Finding jobs** | Adzuna, Remotive, RemoteOK, Himalayas, Arbeitnow, Jooble, JSearch, Active Jobs DB, Y Combinator's board, any company's own careers page on Greenhouse, Lever, Ashby or Workable, and any RSS or Atom feed |
 | **Ranking them** | Every role scored out of 100 against your keywords, with the matching words shown |
 | **Filtering** | Remote / hybrid / on-site, country, city, kind of role, minimum score, source |
 | **Your CV as PDF and Word** | Generated from your details, properly laid out, and readable by employers' screening software |

@@ -30,7 +30,6 @@ const SECRET_LABELS = {
   smtp_password: 'Mailbox password',
   github_pat: 'GitHub access token',
   adzuna: 'Adzuna keys',
-  usajobs: 'USAJOBS credentials',
   jooble: 'Jooble key',
   jsearch: 'JSearch key',
   activejobsdb: 'Active Jobs DB key',
@@ -284,7 +283,7 @@ function register(ctx) {
   });
   handle('settings:setSecret', ({ key, value }) => {
     if (!['anthropic_api_key', 'gemini_api_key', 'openrouter_api_key',
-      'smtp_password', 'adzuna', 'usajobs', 'jooble', 'jsearch',
+      'smtp_password', 'adzuna', 'jooble', 'jsearch',
       'activejobsdb', 'ycjobs', 'github_pat'].includes(key)) {
       throw new Error('Unknown credential.');
     }

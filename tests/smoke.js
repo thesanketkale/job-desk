@@ -1230,7 +1230,7 @@ group('Making the CV files');
 
   group('Credentials the app will accept');
   const ipcSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'main', 'ipc.js'), 'utf8');
-  for (const k of ['adzuna', 'usajobs', 'jooble', 'jsearch', 'activejobsdb', 'ycjobs']) {
+  for (const k of ['adzuna', 'jooble', 'jsearch', 'activejobsdb', 'ycjobs']) {
     ok(`${k} is storable`, ipcSrc.includes(`'${k}'`) && !!settings.secrets()[k]);
   }
 

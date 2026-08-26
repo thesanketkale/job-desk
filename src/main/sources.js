@@ -12,7 +12,6 @@ const TYPES = {
   remoteok:   'RemoteOK — remote roles',
   himalayas:  'Himalayas — remote roles',
   arbeitnow:  'Arbeitnow — EU/UK feed',
-  usajobs:    'USAJOBS — US federal',
   jooble:     'Jooble — a second index of the same market',
   jsearch:    'JSearch — Google for Jobs, includes LinkedIn and Indeed listings',
   activejobsdb: 'Active Jobs DB — real ATS postings aggregated across 200k+ career sites',
@@ -189,35 +188,6 @@ async function himalayas() {
         description_html: j.description || j.excerpt || '',
         apply_url: j.applicationLink || j.url || '',
         posted_at: j.pubDate || null,
-      }));
-    }
-  }
-  return out;
-}
-
-async function usajobs({ secrets, queries, config = {}, rotation }) {
-  const { email, api_key: key } = secrets.usajobs || {};
-  if (!email || !key) throw new Error('USAJOBS credentials are not set');
-  const out = [];
-  const maxQueries = Math.max(1, Math.min(6, config.max_queries || 4));
-  for (const q of budgetedQueries(queries, maxQueries, rotation)) {
-    let d;
-    try {
-      d = await getJson(`https://data.usajobs.gov/api/search?ResultsPerPage=50&Keyword=${encodeURIComponent(q)}`,
-        { Host: 'data.usajobs.gov', 'User-Agent': email, 'Authorization-Key': key });
-    } catch (err) {
-      if (isQuotaError(err)) throw new Error('USAJOBS refused further requests (rate limit). Some roles may be missing from this run.');
-      continue;
-    }
-    for (const item of d.SearchResult?.SearchResultItems || []) {
-      const j = item.MatchedObjectDescriptor || {};
-      out.push(row({
-        external_id: `usajobs:${item.MatchedObjectId}`,
-        title: j.PositionTitle, company: j.OrganizationName,
-        location_raw: j.PositionLocationDisplay || '',
-        employment_type: j.PositionSchedule?.[0]?.Name || '',
-        description_html: `${j.UserArea?.Details?.JobSummary || ''} ${j.QualificationSummary || ''}`,
-        apply_url: j.PositionURI || '', posted_at: j.PublicationStartDate || null,
       }));
     }
   }
@@ -539,7 +509,7 @@ async function rss({ slug }) {
 }
 
 const ADAPTERS = {
-  adzuna, remotive, remoteok, himalayas, arbeitnow, usajobs, jooble, jsearch,
+  adzuna, remotive, remoteok, himalayas, arbeitnow, jooble, jsearch,
   activejobsdb: activeJobsDb, ycjobs: ycJobs,
   greenhouse, lever, ashby, workable, rss,
 };

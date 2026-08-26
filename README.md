@@ -29,7 +29,7 @@ job sites for.
 
 | | |
 |---|---|
-| **Finds** | Adzuna, Remotive, RemoteOK, Himalayas, Arbeitnow, USAJOBS, any Greenhouse / Lever / Ashby / Workable board, any RSS or Atom feed |
+| **Finds** | Adzuna, Remotive, RemoteOK, Himalayas, Arbeitnow, Jooble, JSearch, Active Jobs DB, Y Combinator's board, any Greenhouse / Lever / Ashby / Workable board, any RSS or Atom feed |
 | **Ranks** | Every role scored out of 100 against keywords taken from your own CV |
 | **Writes** | Your CV as PDF and Word, a covering letter, and the email |
 | **Sends** | From your own mailbox, copied to your inbox |
