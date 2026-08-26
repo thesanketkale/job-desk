@@ -13,7 +13,7 @@ document it has ever made for you stay in a folder on your computer.
 
 ## Install
 
-Download the latest `Job Desk Setup x.y.z.exe` from
+Download the latest `JobDesk-Setup-x.y.z.exe` from
 [Releases](https://github.com/thesanketkale/job-desk/releases) and run it. It
 installs per-user, so it needs no administrator rights, and updates itself from
 then on. Windows SmartScreen warns once because the app is unsigned:
@@ -96,7 +96,7 @@ beside the `.exe` instead.
 ```bash
 npm install
 npm start          # npm run dev opens devtools
-npm test           # 241 checks
+npm test           # 344 checks
 ```
 
 `npm test` runs on your system's own Node and needs **22.5 or newer** — that is

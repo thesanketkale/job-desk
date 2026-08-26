@@ -2,7 +2,7 @@
 
 ## Installing it
 
-Before running `Job Desk Setup x.y.z.exe` for the first time, double-click the
+Before running `JobDesk-Setup-x.y.z.exe` for the first time, double-click the
 `jobdesk-signing.cer` file Sanket sends alongside it, then:
 
 1. **Install Certificate…**

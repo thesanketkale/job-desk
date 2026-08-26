@@ -8,7 +8,7 @@ Srishti Sharma, a counselling psychologist. Electron on Windows, no server.
 ```bash
 npm install
 npm start            # npm run dev opens devtools
-npm test             # 241 checks, no Electron and no network needed
+npm test             # 344 checks, no Electron and no network needed
 ```
 
 `npm test` needs Node 22.5+ on the system PATH (`node:sqlite` isn't available
@@ -202,8 +202,10 @@ costs a correction while a silent one costs a wrong application.
 
 **The installer must never contain personal data.** `resources/master-resume.json`
 is excluded from `build.files`; the CV is copied into the user's data folder on
-first run. This is what makes the public releases repo safe. There is a test and
-a CI step guarding it.
+first run. This is what keeps a real CV out of any copy of the installer that
+leaves this machine — the repository is private, but a built `.exe` can still be
+handed to or found by someone who was never granted access to it. There is a
+test and a CI step guarding it.
 
 **Service API keys baked into the build are deliberate — this is not the same
 promise as no personal data.** This install is for one household, so every
@@ -222,10 +224,30 @@ holds every one of these; keep spend caps in place on each account regardless
 of `budget.js`'s own cap, since an extracted key answers to the provider's
 limit, not this app's.
 
+**Nothing works before a resume does — the app enforces that, not just the
+welcome screen's copy.** `app.js#go()` forces every route back to `welcome`
+while `cvReady === false`; before this, the only gate was `refreshChrome()`
+polling every 60 seconds, so a typed `#/board` sat there fully interactive
+until the next poll happened to catch it. Whatever depends on a CV — search
+words, scoring, tailoring, the mailbox — has nothing to run against until
+one exists, so the gate has to be immediate, not eventual.
+
+**The window has no OS title bar — the masthead is it.** `main.js` sets
+`titleBarStyle: 'hidden'` with `titleBarOverlay: { height: 56 }`, and Windows
+paints minimise/maximise/close directly into the masthead's top-right corner.
+That `56` and `app.css`'s `--titlebar: 3.5rem` are the same number in two
+units and have to stay that way — change one without the other and the
+window buttons sit off-centre against the bar. The wordmark reads "*First
+name*'s Job Desk", built from `profile_name`, and is hidden along with the
+rest of the masthead on the welcome screen, before there is a name to show.
+
 ## Where things are
 
 | Path | What |
 |---|---|
+| `src/main/main.js` | Entry point. Window, menu, startup sequence — including the daily launch refresh. |
+| `src/main/ipc.js` | Every `handle()` channel the renderer can call. Always `{ok, data}` or `{ok, error}`. |
+| `src/preload/preload.js` | The fixed channel list bridged into the renderer via `contextBridge`. |
 | `src/main/db.js` | Schema and query helpers. Migrations are additive-only, in `migrate()`. |
 | `src/main/resume-read.js` | Resume file → plain text. Picks the reader by extension. |
 | `src/main/pdf-text.js` | PDF → plain text. Hand-rolled; no dependency. Reports its own confidence. |
@@ -241,6 +263,9 @@ limit, not this app's.
 | `src/main/applier.js` | Prepare, send, rails, status. |
 | `src/main/apply-browser.js` | The in-app browser. Uses CDP `DOM.setFileInputFiles` to attach the CV. |
 | `src/main/budget.js` | Prices, monthly ledger, the hard cap. |
+| `src/main/settings.js` | Prefs, `safeStorage`-encrypted secrets, the baked-key fallback, source activation. |
+| `src/main/updater.js` | Auto-update against this repository's own (private) Releases. |
+| `scripts/write-baked-keys.mjs` | Writes gitignored `baked-keys.js` from CI secrets before packaging. |
 | `src/renderer/app.js` | Every view. One function per route in `VIEWS`. |
 | `src/renderer/app.css` | Design tokens at the top. Nothing below them uses a raw pixel value. |
 
@@ -260,4 +285,7 @@ npm run release minor
 ```
 
 That bumps, commits, tags and pushes. The tag triggers `.github/workflows/release.yml`,
-which builds on Windows and publishes to the public releases repo. See SETUP.md.
+which builds on Windows, bakes in whatever `BAKED_*` secrets are set (see the rule
+above), and publishes to this repository's own Releases — private, so `updater.js`
+on her machine authenticates the check with a GitHub PAT, baked in the same way.
+See SETUP.md.

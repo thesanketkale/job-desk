@@ -11,7 +11,7 @@ Unzip the bundle somewhere sensible — `D:\projects\jobdesk` or similar — the
 ```bash
 cd jobdesk
 npm install
-npm test          # 241 checks, should all pass
+npm test          # 344 checks, should all pass
 npm start         # the app opens
 ```
 
@@ -121,7 +121,7 @@ and the portable `.exe` appear at `github.com/thesanketkale/job-desk/releases`.
 
 ## 7. Hand the app over
 
-Download `Job Desk Setup x.y.z.exe` from Releases and hand it over.
+Download `JobDesk-Setup-x.y.z.exe` from Releases and hand it over.
 
 If the build is signed (see *Signing the build* below) and she has imported the
 certificate once, it installs with no SmartScreen prompt at all. Unsigned, or on
