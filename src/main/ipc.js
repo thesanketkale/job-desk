@@ -21,6 +21,23 @@ const profile = require('./profile');
 const resumeRead = require('./resume-read');
 const providers = require('./providers');
 
+/** Human labels for settings.deadSecrets()' raw keys, so a banner can say what
+ *  needs re-entering rather than showing a database column name. */
+const SECRET_LABELS = {
+  anthropic_api_key: 'Claude API key',
+  gemini_api_key: 'Google Gemini API key',
+  openrouter_api_key: 'OpenRouter API key',
+  smtp_password: 'Mailbox password',
+  github_pat: 'GitHub access token',
+  adzuna: 'Adzuna keys',
+  usajobs: 'USAJOBS credentials',
+  jooble: 'Jooble key',
+  jsearch: 'JSearch key',
+  activejobsdb: 'Active Jobs DB key',
+  ycjobs: 'Free Y Combinator Jobs API key',
+};
+const deadSecretLabels = () => settings.checkSecretsHealth().map((k) => SECRET_LABELS[k] || k);
+
 /** Every handler returns {ok:true, data} or {ok:false, error} — the interface
  *  never has to guess whether something threw. */
 function handle(channel, fn) {
@@ -105,9 +122,12 @@ function register(ctx) {
 
   /* ------------------------------------------------------- refresh ----- */
 
-  handle('refresh:run', ({ sourceId }) => (sourceId
-    ? require('./ingest').runAll({ sourceId })
-    : runRefresh('button')));
+  // A single-source refresh used to call ingest.runAll() directly, bypassing
+  // the `refreshing` mutex runRefresh() guards with — it could run at the
+  // same time as a full refresh, racing the same fetch_rotation counter and
+  // writing overlapping fetch_log rows. Routing it through runRefresh() the
+  // same as every other refresh closes that gap.
+  handle('refresh:run', ({ sourceId }) => runRefresh('button', sourceId || null));
   handle('refresh:status', () => ({ running: isRefreshing(), lastAt: settings.get('last_refresh_at', null) }));
 
   /* -------------------------------------------------- applications ----- */
@@ -221,6 +241,7 @@ function register(ctx) {
     budget: budget.status(),
     aiEnabled: ai.available(),
     templates: templates.current(),
+    deadSecrets: deadSecretLabels(),
   }));
   handle('templates:reset', () => {
     for (const [k, v] of Object.entries(templates.defaults())) settings.set(k, v);
@@ -507,6 +528,7 @@ function register(ctx) {
       canSendEmail: settings.hasSecret('smtp_password') && !!settings.get('smtp_user', ''),
       aiEnabled: ai.available(),
       onboarded: !!settings.get('onboarded', false),
+      deadSecrets: deadSecretLabels(),
     };
   });
 

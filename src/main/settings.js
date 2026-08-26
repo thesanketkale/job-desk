@@ -75,16 +75,46 @@ function setSecret(key, value) {
     [`secret:${key}`, JSON.stringify(stored)]);
 }
 
+// safeStorage's OS-backed encryption is tied to the Windows account that
+// encrypted the value (DPAPI) — copy a portable install's data folder to
+// another machine, or another account on the same machine, and every secret
+// it holds still exists as a row but can no longer be decrypted. hasSecret()
+// says "yes, saved" in exactly that situation, because the row really is
+// there; the app then reads back a dead key or password, fails, and gives no
+// way to tell "wrong credential" apart from "this computer cannot read what
+// was saved". deadSecretKeys tracks which ones just failed for that reason,
+// so the interface can say so instead of just failing quietly downstream.
+const deadSecretKeys = new Set();
+
 function getSecret(key, fallback = null) {
   const row = db.get('SELECT v FROM settings WHERE k = ?', [`secret:${key}`]);
-  if (!row) return fallback;
+  if (!row) { deadSecretKeys.delete(key); return fallback; }
   try {
     const stored = JSON.parse(row.v);
     const raw = stored.enc === 'os'
       ? safeStorage.decryptString(Buffer.from(stored.data, 'base64'))
       : stored.data;
-    return JSON.parse(raw);
-  } catch { return fallback; }
+    const value = JSON.parse(raw);
+    deadSecretKeys.delete(key);           // reading it worked, so it is not dead any more
+    return value;
+  } catch {
+    deadSecretKeys.add(key);
+    return fallback;
+  }
+}
+
+/** Which saved secrets exist but cannot be read back on this computer right now. */
+const deadSecrets = () => [...deadSecretKeys];
+
+/**
+ * Attempts to read back every secret that has a row, so a dead one surfaces
+ * as soon as the person opens the app rather than only the moment a feature
+ * that needed it tries to use it and fails for a reason that looks unrelated
+ * (a job-source adapter throwing "not set" for a key that is, in fact, set).
+ */
+function checkSecretsHealth() {
+  for (const key of SECRET_KEYS) if (hasSecret(key)) getSecret(key);
+  return deadSecrets();
 }
 
 const hasSecret = (key) => !!db.get('SELECT 1 AS x FROM settings WHERE k = ?', [`secret:${key}`]);
@@ -135,4 +165,5 @@ function redacted() {
   };
 }
 
-module.exports = { DEFAULTS, get, set, all, setSecret, getSecret, hasSecret, secrets, redacted };
+module.exports = { DEFAULTS, get, set, all, setSecret, getSecret, hasSecret, secrets, redacted,
+  deadSecrets, checkSecretsHealth };

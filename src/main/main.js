@@ -40,7 +40,10 @@ function createWindow() {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      // preload.js only uses contextBridge/ipcRenderer — no other Node builtin
+      // — so a sandboxed preload works the same and starts one process fewer
+      // ways to reach the filesystem or child_process from a compromised page.
+      sandbox: true,
       spellcheck: true,
     },
   });
@@ -122,7 +125,7 @@ function buildMenu() {
 /** Shared by the button, the menu item, and the once-a-day launch check.
  *  Whatever the reason, a completed attempt counts as today's refresh, so the
  *  launch check does not also fire straight after a manual one. */
-async function runRefresh(reason = 'manual') {
+async function runRefresh(reason = 'manual', sourceId = null) {
   if (refreshing) return { skipped: true, reason: 'already running' };
   refreshing = true;
   const notify = (channel, payload) => {
@@ -131,6 +134,7 @@ async function runRefresh(reason = 'manual') {
   notify('refresh:start', { reason });
   try {
     const summary = await ingest.runAll({
+      sourceId,
       onProgress: (p) => notify('refresh:progress', p),
     });
     notify('refresh:done', summary);

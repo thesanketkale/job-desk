@@ -842,7 +842,16 @@ VIEWS.today = async function today() {
   const hour = new Date().getHours();
   $('#greeting').textContent = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
-  $('#setup-banner').innerHTML = !d.canSendEmail ? `
+  $('#setup-banner').innerHTML = d.deadSecrets?.length ? `
+    <div class="panel" style="margin-bottom:var(--s6);border-color:#eddcb8;background:var(--amber-tint)">
+      <div class="panel__head"><h3>Something saved here will not work as-is</h3></div>
+      <p class="small">${d.deadSecrets.length === 1 ? 'One saved credential' : `${d.deadSecrets.length} saved credentials`}
+        cannot be read on this computer — ${esc(d.deadSecrets.join(', '))}. That happens when a data
+        folder moves to another computer or Windows account; re-entering ${d.deadSecrets.length === 1 ? 'it' : 'them'}
+        below fixes it for this one.</p>
+      <button class="btn btn--primary" style="margin-top:var(--s3)" data-goto="settings">Open Settings</button>
+    </div>`
+    : (!d.canSendEmail ? `
     <div class="panel" style="margin-bottom:var(--s6);border-color:var(--accent-line);background:var(--accent-tint)">
       <div class="panel__head"><h3>One thing to set up</h3></div>
       <p class="small">Finding jobs, ranking them, generating your CV and filling in company forms all work
@@ -857,7 +866,7 @@ VIEWS.today = async function today() {
         respectable way to apply. Adding a Claude key would rewrite the CV for each role and write each
         email from the job description — about ₹5 an application, and entirely optional.</p>
       <button class="btn btn--sm" style="margin-top:var(--s3)" data-goto="settings">See what it adds</button>
-    </div>` : '');
+    </div>` : ''));
 
   $('#dismiss-ai')?.addEventListener('click', (e) => {
     try { localStorage.setItem('jd-ai-dismissed', '1'); } catch { /* private mode */ }
@@ -1325,6 +1334,15 @@ VIEWS.settings = async function settingsView() {
 
   $('#settings-wrap').innerHTML = `
   <div class="grid-2">
+
+    ${s.deadSecrets?.length ? `<div class="flash flash--warn" style="grid-column:1/-1">
+      <b>${s.deadSecrets.length === 1 ? 'One saved credential' : `${s.deadSecrets.length} saved credentials`}
+      cannot be read on this computer:</b> ${esc(s.deadSecrets.join(', '))}.
+      This usually means the data folder was copied from another computer or a different Windows
+      account — the encryption is tied to whichever account first saved it. Re-enter
+      ${s.deadSecrets.length === 1 ? 'it' : 'them'} below and ${s.deadSecrets.length === 1 ? 'it' : 'they'}
+      will work again on this one.
+    </div>` : ''}
 
     <section class="panel">
       <div class="panel__head"><h3>AI tailoring — optional</h3>
