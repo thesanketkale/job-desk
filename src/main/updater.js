@@ -29,6 +29,7 @@ const settings = require('./settings');
 
 let autoUpdater = null;
 let notified = false;
+let notifiedAvailable = false;
 let lastCheck = null;   // { at, ok, message } — so a silent background failure is not invisible
 
 function config() {
@@ -77,6 +78,23 @@ function init(getWindow) {
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowPrerelease = false;
   applyFeed();
+
+  // Fires the moment a check finds a newer version, well before it finishes
+  // downloading — autoDownload is already true, so the download has already
+  // started by the time this shows; this is the "yes, one exists" popup, not
+  // the "yes/no, download it?" one. update-downloaded below is the separate,
+  // later "it's ready, install now?" popup once the file is actually here.
+  autoUpdater.on('update-available', async (info) => {
+    if (notifiedAvailable) return;
+    notifiedAvailable = true;
+    const win = getWindow?.();
+    await dialog.showMessageBox(win, {
+      type: 'info',
+      buttons: ['OK'],
+      message: `Version ${info.version} is available`,
+      detail: 'Downloading it now in the background. You will be asked to install it once it is ready.',
+    });
+  });
 
   autoUpdater.on('update-downloaded', async (info) => {
     if (notified) return;

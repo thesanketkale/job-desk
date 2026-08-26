@@ -287,8 +287,18 @@ function register(ctx) {
     }
     // Saving or clearing the token changes which GitHub provider electron-updater
     // uses (public vs. authenticated) — see updater.js#applyFeed. Re-apply it
-    // immediately rather than waiting for the next launch.
-    if (key === 'github_pat') updater.applyFeed();
+    // immediately rather than waiting for the next launch. A token that was
+    // just saved also gets an immediate check rather than waiting for the
+    // next launch's background one — the point of pasting a token in is
+    // usually "does this let me update right now", not "in eight seconds,
+    // maybe, if I happen to still be looking". Not awaited: the network
+    // round trip should not hold up the settings save, and checkNow() itself
+    // never throws — a rejected/expired token just becomes a message in the
+    // Activity log and Settings, the same as the periodic check.
+    if (key === 'github_pat') {
+      updater.applyFeed();
+      if (value) updater.checkNow().catch(() => {});
+    }
     return settings.redacted();
   });
   handle('settings:testMail', () => mailer.verify());
