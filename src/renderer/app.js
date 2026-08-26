@@ -99,9 +99,14 @@ $('#drawer').addEventListener('keydown', (e) => {
 
 const VIEWS = {};
 let currentRoute = '';
+/** null until the first dashboard read answers it. */
+let cvReady = null;
 
 function go(route) {
   if (!VIEWS[route]) route = 'today';
+  // Nothing in here works without a resume — every document, every search word
+  // and every filled-in form comes out of it — so nothing else is reachable yet.
+  if (cvReady === false && route !== 'welcome') route = 'welcome';
   currentRoute = route;
   $$('.view').forEach((v) => v.removeAttribute('data-active'));
   $(`#view-${route}`).setAttribute('data-active', '');
@@ -173,19 +178,17 @@ let cvName = null;
 async function refreshChrome() {
   try {
     const d = await call(window.api.dashboard.get, {});
-    if (!d.cvReady && currentRoute !== 'welcome' && currentRoute !== 'settings') {
-      location.hash = '#/welcome';
-    }
-    $('#nav').classList.toggle('hidden', !d.cvReady);
-    $('#capacity').classList.toggle('hidden', !d.cvReady);
+    cvReady = d.cvReady;
+    if (!d.cvReady && currentRoute !== 'welcome') location.hash = '#/welcome';
+    for (const id of ['#wordmark', '#nav', '#capacity']) $(id).classList.toggle('hidden', !d.cvReady);
     // Read from the stored profile every time rather than cached once: importing
     // a different resume changes the name, and the header has to follow it.
-    // Blank until a real resume is in: the placeholder CV's "Your Name" in the
-    // header would read as though the app had already been set up.
+    // Hidden altogether until a real resume is in, rather than showing the
+    // placeholder CV's "Your Name" as though the app were already set up.
     const shownName = d.cvReady ? (d.profileName || '') : '';
     if (shownName !== cvName) {
       cvName = shownName;
-      $('#wordmark-name').textContent = cvName;
+      $('#wordmark').textContent = shownName ? `${shownName.split(' ')[0]}'s Job Desk` : 'Job Desk';
     }
     const dots = Array.from({ length: Math.max(1, d.dailyCap) },
       (_, i) => `<span class="capacity__dot${i < d.remainingToday ? ' capacity__dot--on' : ''}"></span>`).join('');
@@ -2031,6 +2034,7 @@ wireKeywords();
   let start = (location.hash || '#/today').slice(2);
   try {
     const d = await call(window.api.dashboard.get, {});
+    cvReady = d.cvReady;
     if (!d.cvReady) start = 'welcome';
   } catch { /* show the board and let the error surface there */ }
   go(start);

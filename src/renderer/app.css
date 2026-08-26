@@ -54,6 +54,9 @@
   --ease:cubic-bezier(.22,.61,.36,1);
   --dur:170ms;
   --rail:236px;
+  /* the masthead doubles as the window's title bar — same height as the
+     titleBarOverlay in main.js */
+  --titlebar:3.5rem;
 }
 
 *,*::before,*::after{box-sizing:border-box}
@@ -102,14 +105,23 @@ button,input,select,textarea{font:inherit; color:inherit}
   background:color-mix(in srgb, var(--paper) 88%, transparent);
   backdrop-filter:saturate(1.4) blur(10px);
   border-bottom:1px solid var(--hair);
+  -webkit-app-region:drag;                 /* the bar is what you drag the window by */
 }
+.masthead a,.masthead button,.masthead .capacity{-webkit-app-region:no-drag}
+/* On the welcome screen the bar holds nothing but the window buttons, so it
+   stops looking like a header and becomes part of the page. */
+.masthead:has(.wordmark.hidden){background:none; backdrop-filter:none; border-bottom-color:transparent}
 .masthead__in{
-  max-width:1200px; margin:0 auto; padding:var(--s3) var(--s5);
+  max-width:1200px; margin:0 auto; min-height:var(--titlebar);
+  /* keep clear of the window buttons, wherever the platform puts them */
+  padding:0 calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw) + var(--s5))
+            0 calc(env(titlebar-area-x, 0px) + var(--s5));
   display:flex; align-items:center; gap:var(--s5);
 }
-.wordmark{display:flex; align-items:baseline; gap:var(--s2); text-decoration:none}
-.wordmark b{font-family:var(--serif); font-size:var(--t-lg); font-weight:500; color:var(--ink); letter-spacing:-.02em}
-.wordmark span{font-size:var(--t-xs); letter-spacing:.1em; text-transform:uppercase; color:var(--accent)}
+.wordmark{
+  font-family:var(--serif); font-size:var(--t-lg); font-weight:500;
+  color:var(--ink); letter-spacing:-.02em; text-decoration:none; white-space:nowrap;
+}
 .nav{display:flex; gap:var(--s1); margin-left:var(--s4)}
 .nav a{
   padding:var(--s2) var(--s3); border-radius:var(--r-md); text-decoration:none;
@@ -389,7 +401,7 @@ select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,v
 }
 @media (max-width:720px){
   .shell{padding:var(--s5) var(--s4) var(--s8)}
-  .masthead__in{padding:var(--s3) var(--s4); flex-wrap:wrap; gap:var(--s3)}
+  .masthead__in{padding-block:var(--s3); flex-wrap:wrap; gap:var(--s3)}
   .nav{margin-left:calc(var(--s4) * -1); margin-right:calc(var(--s4) * -1); order:3; width:calc(100% + var(--s6));
     overflow-x:auto; padding-inline:var(--s4); scrollbar-width:none}
   .nav::-webkit-scrollbar{display:none}

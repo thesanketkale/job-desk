@@ -36,6 +36,11 @@ function createWindow() {
     show: false,
     backgroundColor: '#fbfaf6',
     title: 'Job Desk',
+    // No window chrome of its own: the masthead is the title bar, and Windows
+    // paints minimise/maximise/close into the top-right of it. The height here
+    // must stay equal to --titlebar in app.css or the buttons sit off-centre.
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#fbfaf6', symbolColor: '#57533f', height: 56 },
     webPreferences: {
       preload: path.join(__dirname, '..', 'preload', 'preload.js'),
       contextIsolation: true,
