@@ -8,6 +8,10 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) =>
   ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
+/** An error that points at Settings becomes a link there, not just a name-check. */
+const errorHtml = (msg) => (!msg ? ''
+  : `${esc(msg)}${/settings/i.test(msg) ? ' <a href="#" data-goto="settings">Open Settings →</a>' : ''}`);
+
 /** Unwraps the {ok, data|error} envelope every channel returns. */
 async function call(fn, payload) {
   const res = await fn(payload);
@@ -1209,20 +1213,20 @@ VIEWS.sources = async function sourcesView() {
     <section>
       <table class="table">
         <thead><tr><th>Source</th><th>Last checked</th><th>Found</th><th></th></tr></thead>
-        <tbody>${d.rows.map((s) => `<tr>
+        <tbody>${d.rows.map((s) => `<tr data-src-row="${s.id}">
           <td>
             <div class="t-title">${esc(s.label)}</div>
             <div class="small muted">${esc(s.type)}${s.slug ? ` · ${esc(s.slug)}` : ''}</div>
-            ${s.last_error ? `<div class="small" style="color:var(--clay);margin-top:var(--s1)">${esc(s.last_error)}</div>` : ''}
+            <div class="small" data-cell="error" style="color:var(--clay);margin-top:var(--s1)${s.last_error ? '' : ';display:none'}">${errorHtml(s.last_error)}</div>
           </td>
-          <td class="small muted">${s.last_run_at ? esc(ago(s.last_run_at)) : 'never'}</td>
-          <td><span class="pill pill--${s.last_status === 'ok' ? 'sent' : s.last_status ? 'failed' : 'draft'}">${s.last_count}</span></td>
+          <td class="small muted" data-cell="checked">${s.last_run_at ? esc(ago(s.last_run_at)) : 'never checked'}</td>
+          <td><span class="pill pill--${s.last_status === 'ok' ? 'sent' : s.last_status ? 'failed' : 'draft'}" data-cell="found">${s.last_count}</span></td>
           <td>
             <label class="row small" style="gap:var(--s2)">
-              <input type="checkbox" ${s.active ? 'checked' : ''} data-src-toggle="${s.id}"> on</label>
+              <input type="checkbox" ${s.active ? 'checked' : ''} data-src-toggle="${s.id}" aria-label="Use ${esc(s.label)}"> on</label>
             <div class="row" style="margin-top:var(--s2);gap:var(--s1)">
-              <button class="btn btn--sm" data-src-test="${s.id}">Test</button>
-              <button class="btn btn--ghost btn--sm btn--danger" data-src-del="${s.id}" data-label="${esc(s.label)}">×</button>
+              <button class="btn btn--sm" data-src-test="${s.id}">Check now</button>
+              <button class="btn btn--ghost btn--sm btn--danger" data-src-del="${s.id}" data-label="${esc(s.label)}" aria-label="Remove ${esc(s.label)}" title="Remove ${esc(s.label)}">×</button>
             </div>
           </td></tr>`).join('')}
         </tbody>
@@ -1276,8 +1280,8 @@ VIEWS.sources = async function sourcesView() {
         ? `<div class="flash flash--ok">${r.count} openings found.${
           r.samples.length ? `<ul class="notes" style="margin-top:var(--s2)">${
             r.samples.map((s) => `<li>${esc(s.title)}${s.location ? ` — ${esc(s.location)}` : ''}</li>`).join('')}</ul>` : ''}</div>`
-        : `<div class="flash flash--bad">${esc(r.error || 'That board did not reply.')}</div>`;
-    } catch (err) { out.innerHTML = `<div class="flash flash--bad">${esc(err.message)}</div>`; }
+        : `<div class="flash flash--bad">${errorHtml(r.error || 'That board did not reply.')}</div>`;
+    } catch (err) { out.innerHTML = `<div class="flash flash--bad">${errorHtml(err.message)}</div>`; }
   };
 
   $('#src-test').addEventListener('click', test);
@@ -1287,9 +1291,9 @@ VIEWS.sources = async function sourcesView() {
       await call(window.api.sources.add, {
         type: form.type.value, label: form.label.value.trim(), slug: form.slug.value.trim(),
       });
-      toast('Added.');
+      toast(`${form.label.value.trim()} added.`);
       go('sources');
-    } catch (err) { out.innerHTML = `<div class="flash flash--bad">${esc(err.message)}</div>`; }
+    } catch (err) { out.innerHTML = `<div class="flash flash--bad">${errorHtml(err.message)}</div>`; }
   });
   $$('[data-suggest]').forEach((b) => b.addEventListener('click', () => {
     const [type, label, slug] = JSON.parse(b.dataset.suggest);
@@ -1298,11 +1302,19 @@ VIEWS.sources = async function sourcesView() {
     test();
   }));
 
-  $('#src-wrap').addEventListener('change', async (e) => {
+  // #src-wrap itself is a fixed container from index.html — only its
+  // innerHTML is replaced above, so a listener bound to the wrapper on every
+  // visit to this view would stack rather than replace, firing once per past
+  // visit (a Test click would toast, and re-probe, that many times over).
+  const wrap = $('#src-wrap');
+  if (wrap._changeHandler) wrap.removeEventListener('change', wrap._changeHandler);
+  if (wrap._clickHandler) wrap.removeEventListener('click', wrap._clickHandler);
+
+  wrap._changeHandler = async (e) => {
     const t = e.target.closest('[data-src-toggle]');
     if (t) { try { await call(window.api.sources.toggle, { id: Number(t.dataset.srcToggle) }); } catch (err) { oops(err); } }
-  });
-  $('#src-wrap').addEventListener('click', async (e) => {
+  };
+  wrap._clickHandler = async (e) => {
     const test2 = e.target.closest('[data-src-test]');
     const del = e.target.closest('[data-src-del]');
     if (test2) {
@@ -1310,11 +1322,23 @@ VIEWS.sources = async function sourcesView() {
       test2.disabled = true;
       test2.innerHTML = '<span class="spin"></span>';
       try {
-        const r = await call(window.api.sources.probe, { type: row.type, slug: row.slug });
-        toast(r.ok ? `${row.label}: ${r.count} openings found.` : `${row.label}: ${r.error}`, r.ok ? 'ok' : 'bad');
+        const r = await call(window.api.sources.probe, { type: row.type, slug: row.slug, id: row.id });
+        toast(r.ok
+          ? `${row.label}: ${r.count} opening${r.count === 1 ? '' : 's'} found.`
+          : `${row.label}: ${r.error}`, r.ok ? 'ok' : 'bad');
+        // Reflect what this test just found right in the row, the same fields
+        // a scheduled refresh would set — a toast alone is easy to miss.
+        const tr = test2.closest('tr');
+        tr.querySelector('[data-cell="checked"]').textContent = 'just now';
+        const pill = tr.querySelector('[data-cell="found"]');
+        pill.textContent = r.count;
+        pill.className = `pill pill--${r.ok ? 'sent' : 'failed'}`;
+        const errEl = tr.querySelector('[data-cell="error"]');
+        errEl.innerHTML = r.ok ? '' : errorHtml(r.error);
+        errEl.style.display = r.ok ? 'none' : '';
       } catch (err) { oops(err); }
       test2.disabled = false;
-      test2.textContent = 'Test';
+      test2.textContent = 'Check now';
     }
     if (del) {
       // eslint-disable-next-line no-alert
@@ -1322,7 +1346,9 @@ VIEWS.sources = async function sourcesView() {
       try { await call(window.api.sources.remove, { id: Number(del.dataset.srcDel) }); go('sources'); }
       catch (err) { oops(err); }
     }
-  });
+  };
+  wrap.addEventListener('change', wrap._changeHandler);
+  wrap.addEventListener('click', wrap._clickHandler);
 };
 
 /* ============================================================== SETTINGS */

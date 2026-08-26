@@ -231,12 +231,26 @@ function register(ctx) {
     suggested: settings.get('suggested_boards', []),
     recent: db.all('SELECT * FROM fetch_log ORDER BY at DESC LIMIT 12'),
   }));
-  handle('sources:probe', ({ type, slug }) => sources.probe(type, slug, settings.secrets()));
+  handle('sources:probe', async ({ type, slug, id }) => {
+    const r = await sources.probe(type, slug, settings.secrets());
+    // Testing a saved source is a real check, not a throwaway — the row it
+    // tests should show what the test found, the same as a scheduled refresh
+    // would, or the table looks unchanged and a fixed key still looks broken.
+    if (id) {
+      db.update('sources', {
+        last_run_at: new Date().toISOString().slice(0, 19).replace('T', ' '),
+        last_status: r.ok ? 'ok' : 'error',
+        last_count: r.count,
+        last_error: r.ok ? null : r.error,
+      }, 'id = ?', [id]);
+    }
+    return r;
+  });
   handle('sources:add', async ({ type, label, slug }) => {
     if (!sources.TYPES[type]) throw new Error('Unknown kind of source.');
     if (!String(label || '').trim()) throw new Error('Give the source a name.');
     const probe = await sources.probe(type, slug, settings.secrets());
-    if (!probe.ok) throw new Error(`That board did not respond: ${probe.error}`);
+    if (!probe.ok) throw new Error(probe.error || 'That board did not respond.');
     return db.insert('sources', { type, label: label.trim(), slug: String(slug || '').trim(), config: '{}', active: 1 });
   });
   handle('sources:toggle', ({ id }) => db.run('UPDATE sources SET active = 1 - active WHERE id = ?', [id]).changes);

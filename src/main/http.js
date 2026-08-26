@@ -33,9 +33,25 @@ async function request(url, { method = 'GET', headers = {}, body = null, timeout
   return { ok: false, status: lastStatus, error: lastError, text: lastText };
 }
 
+/** Turns a bare status code into something worth reading; a network failure
+ *  (no status at all — a timeout, DNS, offline) already has a plain-English
+ *  message from request(), so it passes through untouched. */
+function describeHttpError(status, fallback) {
+  if (!status) return fallback || 'the request failed';
+  if (status === 404) return 'nothing was found there';
+  if (status === 401 || status === 403) return 'the request was refused — check the key or the name';
+  if (status === 429) return 'too many requests right now — try again shortly';
+  if (status >= 500) return 'that service is having trouble right now';
+  return fallback || 'the request failed';
+}
+
 async function getJson(url, headers = {}, timeout = 25000) {
   const r = await request(url, { headers: { Accept: 'application/json', ...headers }, timeout });
-  if (!r.ok) throw new Error(`${url.split('?')[0]} — ${r.error}`);
+  if (!r.ok) {
+    const err = new Error(describeHttpError(r.status, r.error));
+    err.status = r.status;
+    throw err;
+  }
   try { return JSON.parse(r.text); }
   catch { throw new Error('the server replied with something that is not JSON'); }
 }
@@ -62,4 +78,4 @@ async function postJson(url, payload, headers = {}, timeout = 180000) {
   }
 }
 
-module.exports = { request, getJson, postJson };
+module.exports = { request, getJson, postJson, describeHttpError };

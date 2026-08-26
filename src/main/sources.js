@@ -4,7 +4,7 @@
  * Nothing here scrapes: each endpoint is a published API or a company's own
  * career feed, so it will not break on a redesign or get an IP blocked.
  */
-const { getJson, request } = require('./http');
+const { getJson, request, describeHttpError } = require('./http');
 
 const TYPES = {
   adzuna:     'Adzuna — multi-country, including India',
@@ -49,6 +49,7 @@ function budgetedQueries(queries, max, rotationSeed) {
 
 /** Distinguishes "no more results" from "the API refused us". */
 function isQuotaError(err) {
+  if (err && (err.status === 429 || err.status === 403)) return true;
   return /\b429\b|rate.?limit|quota|too many requests|forbidden|\b403\b/i.test(String(err && err.message));
 }
 
@@ -159,7 +160,7 @@ async function arbeitnow() {
         external_id: `arbeitnow:${j.slug}`,
         title: j.title, company: j.company_name,
         location_raw: j.location || '', remote_flag: !!j.remote,
-        employment_type: (j.job_types || []).join(', '),
+        employment_type: (Array.isArray(j.job_types) ? j.job_types : []).join(', '),
         description_html: j.description || '', apply_url: j.url || '',
         posted_at: j.created_at || null,
       }));
@@ -517,7 +518,7 @@ async function workable({ slug }) {
 async function rss({ slug }) {
   if (!slug) throw new Error('Feed address is missing');
   const r = await request(slug, { headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml' } });
-  if (!r.ok) throw new Error(`feed unreachable — ${r.error}`);
+  if (!r.ok) throw new Error(`That feed did not reply: ${describeHttpError(r.status, r.error)}.`);
   const xml = r.text;
   const blocks = xml.match(/<(item|entry)[\s\S]*?<\/\1>/gi) || [];
   const pick = (b, tag) => {
@@ -543,6 +544,11 @@ const ADAPTERS = {
   greenhouse, lever, ashby, workable, rss,
 };
 
+// A board looked up by company name (as opposed to an aggregator with a fixed
+// endpoint) turns a 404 into "no board there under that name", not the generic
+// "nothing was found" — company names change when a company switches ATS.
+const BOARD_TYPES = new Set(['greenhouse', 'lever', 'ashby', 'workable']);
+
 /** @returns {{rows: object[], error: string|null}} — never throws. */
 async function fetchSource(source, queries, secrets, rotation = 0) {
   const adapter = ADAPTERS[source.type];
@@ -553,7 +559,10 @@ async function fetchSource(source, queries, secrets, rotation = 0) {
     const rows = await adapter({ slug: (source.slug || '').trim(), config, secrets, queries, rotation });
     return { rows, error: null };
   } catch (err) {
-    return { rows: [], error: String(err.message || err).slice(0, 400) };
+    const msg = BOARD_TYPES.has(source.type) && err.status === 404
+      ? 'No board found under that name — try the exact name from the company’s own careers page.'
+      : String(err.message || err).slice(0, 400);
+    return { rows: [], error: msg };
   }
 }
 

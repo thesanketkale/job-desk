@@ -210,8 +210,7 @@ select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,v
 
 /* ---------------- job cards ---------------- */
 .results-bar{display:flex; align-items:center; gap:var(--s4); margin-bottom:var(--s4); flex-wrap:wrap}
-.cards{display:flex; flex-direction:column; gap:var(--s4); max-width:78ch}
-.results-bar{max-width:78ch}
+.cards{display:flex; flex-direction:column; gap:var(--s4)}
 
 .card{
   position:relative; background:var(--surface);
@@ -397,7 +396,6 @@ select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,v
   .page-head{gap:var(--s4); margin-bottom:var(--s5)}
   .page-head .spacer{display:none}
   .page-head .btn{width:100%}
-  .cards,.results-bar{max-width:100%}
   .capacity{order:2}
   h1{font-size:var(--t-xl)}
   .card{padding:var(--s4) var(--s4) var(--s3) var(--s5)}
