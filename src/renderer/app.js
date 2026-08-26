@@ -1633,6 +1633,17 @@ VIEWS.settings = async function settingsView() {
         <p class="inline-note" id="s-gh-pat-note" style="margin-top:var(--s2)"></p>
       </div>
     </section>
+
+    <section class="panel" style="grid-column:1/-1">
+      <details id="s-activity-details">
+        <summary style="cursor:pointer;font-family:var(--serif);font-size:var(--t-lg);color:var(--ink);font-weight:500">
+          Activity log</summary>
+        <p class="small muted" style="margin-top:var(--s2)">Today only shows job-search activity — where and
+          when you applied. Everything else the app logs (AI spend, key checks, update errors) is here
+          instead, for troubleshooting rather than the home screen.</p>
+        <div id="s-activity-body" style="margin-top:var(--s3);max-height:420px;overflow-y:auto"></div>
+      </details>
+    </section>
   </div>`;
 
   $('#s-cv').value = JSON.stringify(await call(window.api.cv.get, {}), null, 2);
@@ -1645,6 +1656,22 @@ VIEWS.settings = async function settingsView() {
     const u = await call(window.api.app.updateStatus, {});
     if (u.enabled && u.lastCheck?.message) $('#s-update-note').textContent = u.lastCheck.message;
   } catch { /* the button below still works even if this failed */ }
+
+  // Fetched only once the details element is actually opened, not on every
+  // visit to Settings — up to 300 rows is cheap enough, but no reason to
+  // pay for it when nobody is looking at it.
+  let activityLoaded = false;
+  $('#s-activity-details').addEventListener('toggle', async (e) => {
+    if (!e.target.open || activityLoaded) return;
+    activityLoaded = true;
+    const rows = await call(window.api.activity.list, {}).catch(() => []);
+    $('#s-activity-body').innerHTML = rows.length
+      ? rows.map((r) => `<div class="timeline__row">
+          <span class="timeline__dot"></span>
+          <span><b>${esc(r.kind)}</b> — ${esc(r.detail)}</span>
+          <span class="small muted">${esc(ago(r.at))}</span></div>`).join('')
+      : '<p class="small muted">Nothing logged yet.</p>';
+  });
 
   const patch = async (obj, msg = 'Saved.') => {
     try { await call(window.api.settings.set, { patch: obj }); toast(msg); }

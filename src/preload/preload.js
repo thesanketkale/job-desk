@@ -92,6 +92,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   dashboard: { get: call('dashboard:get') },
   budget: { status: call('budget:status') },
+  activity: { list: call('activity:list') },
   shell: { openExternal: call('shell:openExternal'), openDataFolder: call('shell:openDataFolder') },
   app: {
     backup: call('app:backup'),

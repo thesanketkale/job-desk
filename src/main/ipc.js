@@ -38,6 +38,19 @@ const SECRET_LABELS = {
 };
 const deadSecretLabels = () => settings.checkSecretsHealth().map((k) => SECRET_LABELS[k] || k);
 
+/**
+ * Today's "Recent activity" is meant to answer "what happened with my job
+ * search" — where she applied, and when. Every db.logActivity() call writes
+ * to the same table regardless of kind, which used to mean an AI key check
+ * ($0.0002 on gemini-3.7-flash, one row per call), a key being saved, and a
+ * raw update-checker error (a 404 against the unauthenticated releases feed,
+ * expected until a GitHub token is added — see updater.js) all landed on the
+ * home screen next to "sent to Acme Corp". Today now shows only the kinds a
+ * person applying for jobs actually cares about; everything the table holds,
+ * technical entries included, is still there in Settings for troubleshooting.
+ */
+const TODAY_ACTIVITY_KINDS = ['tailored', 'drafted', 'sent', 'submitted', 'send_failed', 'status', 'followup_sent', 'refresh'];
+
 /** Every handler returns {ok:true, data} or {ok:false, error} — the interface
  *  never has to guess whether something threw. */
 function handle(channel, fn) {
@@ -439,6 +452,11 @@ function register(ctx) {
   });
   handle('shell:openDataFolder', () => shell.openPath(db.paths.root));
 
+  /** The full, unfiltered log — everything Today's "Recent activity" leaves
+   *  out (AI spend, key checks, update-checker errors) alongside what it
+   *  shows, for troubleshooting from Settings rather than the home screen. */
+  handle('activity:list', () => db.all('SELECT * FROM activity ORDER BY at DESC LIMIT 300'));
+
   /* --------------------------------------------- the apply browser ----- */
 
   handle('browser:open', async ({ applicationId }) => {
@@ -527,7 +545,8 @@ function register(ctx) {
       remainingToday: applier.remainingToday(),
       dailyCap: Number(settings.get('max_sends_per_day', 12)),
       lastRefresh: settings.get('last_refresh_at', null),
-      activity: db.all('SELECT * FROM activity ORDER BY at DESC LIMIT 12'),
+      activity: db.all(`SELECT * FROM activity WHERE kind IN (${TODAY_ACTIVITY_KINDS.map(() => '?').join(',')})
+        ORDER BY at DESC LIMIT 12`, TODAY_ACTIVITY_KINDS),
       cvReady: !masterCv.isPlaceholder(),
       profileName: settings.get('profile_name', '') || (() => {
         try { return masterCv.master().name; } catch { return ''; }
