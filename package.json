@@ -1,7 +1,7 @@
 {
   "name": "jobdesk",
   "productName": "Job Desk",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "A private, local-first job board and application desk.",
   "author": {
     "name": "thesanketkale"
