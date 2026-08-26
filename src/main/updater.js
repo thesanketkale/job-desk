@@ -107,16 +107,28 @@ function init(getWindow) {
   return { enabled: true, channel: cfg.channel };
 }
 
-/** The GitHub API's own wording is technical; this is what to do about it. */
+/**
+ * The GitHub API's own wording is technical; this is what to do about it.
+ *
+ * Auth is checked before "not found", not after. electron-updater's
+ * getLatestVersionInfo() wraps ANY failure — a rejected token included — in
+ * the same "Unable to find latest version on GitHub ... please ensure a
+ * production release exists" framing before the real HttpError. Confirmed
+ * live with a revoked token: the wrapped message contains both that generic
+ * not-found phrasing AND the literal "401"/"Bad credentials" from the
+ * underlying error, in the same string. Checking not-found first would have
+ * told a person with a bad token to go check the repository, when the fix is
+ * the token.
+ */
 function friendlyUpdateError(err) {
   const m = String(err?.message || err);
-  if (/404/.test(m) || /ERR_UPDATER_LATEST_VERSION_NOT_FOUND/.test(m)) {
+  if (/401|403|bad credentials|invalid.*token|expired.*token/i.test(m)) {
+    return 'That GitHub token was rejected — it may be wrong, expired, or revoked. Check it in Settings.';
+  }
+  if (/404|not.?found/i.test(m)) {
     return hasToken()
       ? 'Could not find a release. Check the token in Settings has access to this repository.'
       : 'Could not read the releases — if this repository is private, add a GitHub token in Settings.';
-  }
-  if (/401|403|Bad credentials/i.test(m)) {
-    return 'That GitHub token was rejected. Check it in Settings.';
   }
   return `Could not check for updates: ${m}`;
 }
@@ -156,4 +168,5 @@ async function checkNow() {
   }
 }
 
-module.exports = { init, checkNow, enabled, config, hasToken, applyFeed, get lastCheck() { return lastCheck; } };
+module.exports = { init, checkNow, enabled, config, hasToken, applyFeed, friendlyUpdateError,
+  get lastCheck() { return lastCheck; } };

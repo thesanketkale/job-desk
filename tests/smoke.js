@@ -22,6 +22,7 @@ const normalize = require('../src/main/normalize');
 const score = require('../src/main/score');
 const claude = require('../src/main/ai');
 const settings = require('../src/main/settings');
+const updater = require('../src/main/updater');
 const seed = require('../src/main/seed');
 const { buildScript, buildFileInputMatchScript,
   buildCollectQuestionsScript, buildApplyAnswersScript } = require('../src/main/autofill-script');
@@ -314,6 +315,32 @@ group('Telling a cut-off reply apart from a genuinely unreadable one');
     usage: { prompt_tokens: 100, completion_tokens: 8000 },
   });
   ok('the OpenAI-compatible wire reports "length" the same way', openaiCutOff.stopReason === 'length');
+}
+
+/* electron-updater's getLatestVersionInfo() wraps ANY failure in the same
+   "Unable to find latest version on GitHub ... please ensure a production
+   release exists" framing before the real HttpError — confirmed live with a
+   revoked token: the wrapped message contains both that generic not-found
+   phrasing AND the literal "401"/"Bad credentials" from the real cause, in
+   the same string. Checking not-found before auth used to tell someone with
+   a bad token to go check the repository instead of the token. */
+group('Telling a rejected GitHub token apart from a genuine 404');
+{
+  // The exact shape confirmed live (see updater.js's comment on friendlyUpdateError).
+  const revokedTokenError = 'Unable to find latest version on GitHub '
+    + '(https://api.github.com/repos/thesanketkale/job-desk/releases/latest), please ensure a '
+    + 'production release exists: HttpError: 401 "message": "Bad credentials", "status": "401"';
+  const genuineNotFoundError = 'Unable to find latest version on GitHub '
+    + '(https://api.github.com/repos/x/y/releases/latest), please ensure a production release '
+    + 'exists: HttpError: 404 "message": "Not Found", "status": "404"';
+
+  ok('a revoked/wrong token is reported as a rejected token, not a missing release',
+    /rejected/i.test(updater.friendlyUpdateError(revokedTokenError)),
+    updater.friendlyUpdateError(revokedTokenError));
+  ok('a genuine 404 is still reported as a missing release, not a token problem',
+    /release/i.test(updater.friendlyUpdateError(genuineNotFoundError))
+    && !/rejected/i.test(updater.friendlyUpdateError(genuineNotFoundError)),
+    updater.friendlyUpdateError(genuineNotFoundError));
 }
 
 /* ------------------------------------------------------------- secrets */
