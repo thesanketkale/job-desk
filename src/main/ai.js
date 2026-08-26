@@ -176,7 +176,14 @@ function friendlyError(message, p, model) {
   if (/api[- ]?key|authenticat|unauthor|permission|invalid.*key|401|403/i.test(m)) {
     return `That ${p.label} key was rejected. Check it in Settings. ${p.keyHint}`;
   }
-  if (/not.?found|model|unsupported|does not exist|404/i.test(m)) {
+  // Deliberately narrow. A bare "model" or "unsupported" used to be enough to
+  // match here, and a provider's error about something else entirely — a
+  // parameter value it did not like — happened to contain the word "model"
+  // too ("Thinking level MINIMAL is not supported for this model"), so it
+  // was shown to the user as "the model was not available", which was not
+  // what actually happened and sent them hunting for a different model to
+  // fix a problem that had nothing to do with which one was chosen.
+  if (/not.?found|does not exist|no longer available|unknown model|invalid model|404/i.test(m)) {
     return `The model "${model}" was not available on ${p.label}. Pick a different one in Settings.`;
   }
   if (/rate.?limit|overloaded|resource.?exhausted|429|too many/i.test(m)) {

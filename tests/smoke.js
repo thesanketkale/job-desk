@@ -247,14 +247,25 @@ group('The provider table itself');
   // out of max_tokens. The key check asks for one word in a small budget, so
   // without this the whole budget goes on invisible reasoning, no text comes
   // back, and a working key is rejected as broken.
+  //
+  // This only checks the request SHAPE, not whether the provider accepts the
+  // value — and that gap is exactly what broke a real key check live: the
+  // value was 'minimal', this test asserted 'minimal', and it stayed green
+  // while Gemini 3.7 Flash rejected 'minimal' outright with a 400 the moment
+  // the default model moved to it, since 'minimal' was never actually valid
+  // for that model. A unit test cannot catch a provider rejecting a literal
+  // value — only a live call can — so treat cheapReasoningValue as needing
+  // re-verification against the real API whenever the default model changes.
   const thinkingOff = (id) => {
     const p = providers.get(id);
     const b = providers.buildRequest(id, { model: p.defaultModel, system: 's', user: 'u',
       maxTokens: 300, key: 'k', cheap: true }).body;
-    return p.wire === 'anthropic' ? b.thinking?.type === 'disabled' : b.reasoning_effort === 'minimal';
+    return p.wire === 'anthropic' ? b.thinking?.type === 'disabled' : b.reasoning_effort === p.cheapReasoningValue;
   };
   ok('the key check turns thinking off on Claude', thinkingOff('anthropic'));
   ok('the key check turns thinking off on Gemini', thinkingOff('gemini'));
+  ok('gemini\'s cheap reasoning value is not the one confirmed broken live (2026-08-26)',
+    providers.get('gemini').cheapReasoningValue !== 'minimal');
 
   // ...and leaves it alone for the work that actually needs it.
   const tailorBody = providers.buildRequest('anthropic', { model: 'claude-sonnet-5', system: 's',

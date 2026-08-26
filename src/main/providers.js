@@ -37,10 +37,19 @@ const PROVIDERS = {
       return '';
     },
     defaultModel: 'gemini-3.7-flash',
-    // Verified live: passing reasoning_effort: "minimal" on the OpenAI-compat
-    // endpoint stops Gemini burning its token budget on invisible thinking —
-    // used only for calls that do not need reasoning quality, like a key check.
+    // Confirmed live against the real API (2026-08-26): passing
+    // reasoning_effort on the OpenAI-compat endpoint stops Gemini burning its
+    // token budget on invisible thinking — used only for calls that do not
+    // need reasoning quality, like a key check. 'minimal' was the value here
+    // and was never re-checked when the default model moved to the 3.x
+    // family — Gemini 3.7 Flash rejects it outright ("Thinking level MINIMAL
+    // is not supported for this model"), which broke every key check on the
+    // new default. 'low' is confirmed live on 3.5 Flash-Lite, 3.6 Flash and
+    // 3.7 Flash; the model catalogue lists a value working, it does not mean
+    // that value works everywhere, so re-verify this if the model list here
+    // ever changes again.
     cheapReasoningField: 'reasoning_effort',
+    cheapReasoningValue: 'low',
     freeTier: true,
     freeNote: 'Google\'s free tier covers roughly 1,000 requests a day on Flash models. '
       + 'The figures below are what it would cost only if you turn on billing and go past that.',
@@ -196,7 +205,7 @@ function buildRequest(providerId, { model, system, user, maxTokens, key, cheap =
   // (like a key check) of any room for the actual answer. Turned down only for
   // calls that do not need reasoning quality, and only for a provider this has
   // been proven to accept — an unrecognised field is a 400 on some backends.
-  if (cheap && p.cheapReasoningField) body[p.cheapReasoningField] = 'minimal';
+  if (cheap && p.cheapReasoningField) body[p.cheapReasoningField] = p.cheapReasoningValue || 'low';
 
   return { url: p.endpoint, headers: { Authorization: `Bearer ${key}` }, body };
 }
