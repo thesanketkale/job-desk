@@ -62,6 +62,29 @@ dashes. British/Indian English. Sign off with the candidate's own name.
 
 Return ONLY JSON: {"subject": "...", "body": "..."}`;
 
+const FORM_SYSTEM = `You are filling in one job application form on behalf of a real candidate,
+using only their CV and the job advert. Your answers are typed into the employer's own form.
+
+ABSOLUTE RULES — a violation makes the output unusable:
+1. NEVER invent, inflate, or imply anything not supported by the CV. No employer, date,
+   qualification, licence, registration, tool, salary, or number may appear that is not in it.
+2. If the CV does not answer a question, return an empty string for it. An unanswered field the
+   candidate fills in themselves is correct; a plausible guess typed into an employer's form is
+   a lie told in their name.
+3. For a question offering options, answer with EXACTLY one of the option strings given, copied
+   character for character. If none is truthful, return an empty string.
+4. Never answer a question about disability, gender, ethnicity, veteran status, or any other
+   protected characteristic. Return an empty string for those, always — they are the candidate's
+   alone to answer.
+5. Never agree to terms, consent, or declarations on the candidate's behalf. Empty string.
+6. Never state a salary figure the CV does not give. Empty string.
+7. First person, British/Indian English. A "short" answer is a few words. A "long" answer is
+   2-4 short paragraphs, specific to this role, warm and direct, no exclamation marks, no em
+   dashes, and never "I am excited to" or "I am writing to express my interest".
+
+Return ONLY a JSON object, no prose, no code fence:
+{"answers": [{"index": <the question's index>, "value": "<your answer, or an empty string>"}]}`;
+
 const RESUME_SYSTEM = `You convert the plain text of a resume into structured JSON.
 
 This is transcription, not writing. The person's own resume is the only source.
@@ -309,6 +332,67 @@ ${jd}`;
   };
 }
 
+/**
+ * Answers the application-form questions plain keyword matching could not —
+ * the dropdowns and the free-text screening questions. Returns only answers
+ * that survive the guards below; the page-side script then drops anything
+ * that is not a real option on the element it belongs to, so a wrong answer
+ * has to get past both to reach an employer's form.
+ */
+async function answerFormFields({ fields, cv, job }) {
+  const asked = (fields || []).filter((f) => f && f.label);
+  if (!asked.length) return [];
+
+  const user = `THE CANDIDATE'S CV (JSON, the only source of truth):
+${JSON.stringify(cv, null, 2)}
+
+---
+
+THE JOB
+Title: ${job?.title || ''}
+Company: ${job?.company || ''}
+Location: ${job?.location_raw || ''}
+
+---
+
+QUESTIONS ON THE FORM (answer by index):
+${JSON.stringify(asked.map((f) => ({
+    index: f.index,
+    question: f.label,
+    answer_type: f.kind,
+    ...(f.options?.length ? { must_be_one_of: f.options } : {}),
+  })), null, 2)}`;
+
+  const { text, usage, model } = await call(FORM_SYSTEM, user, 4000);
+  budget.record(usage, model, 'form answers');
+
+  const parsed = extractJson(text);
+  const byIndex = new Map(asked.map((f) => [f.index, f]));
+  const out = [];
+  for (const a of parsed?.answers || []) {
+    const field = byIndex.get(Number(a?.index));
+    const value = String(a?.value ?? '').trim();
+    if (!field || !value) continue;
+    // A question offering options may only be answered with one of them. The
+    // page-side script checks this again against the live element; doing it
+    // here too means a model that ignores the instruction never even reaches it.
+    if (field.options?.length
+      && !field.options.some((o) => o.toLowerCase() === value.toLowerCase())) continue;
+    if (PROTECTED_QUESTION.test(field.label)) continue;    // never ours to answer — see FORM_SYSTEM rule 4
+    out.push({ index: field.index, value });
+  }
+  return out;
+}
+
+/**
+ * Questions that stay unanswered whatever the model returns. These are asked
+ * for equal-opportunities monitoring and are the candidate's alone; they are
+ * also the ones where a confident wrong answer does real harm. The prompt
+ * forbids them and this drops them anyway, because a prompt is a request and
+ * a guard is a guarantee — the same reason enforceTruth() exists.
+ */
+const PROTECTED_QUESTION = /disab|gender|sex\b|ethnic|race\b|racial|veteran|nationality|religio|orientation|marital|pregnan|criminal|conviction|salary|compensation|ctc|consent|agree to|declaration|certify/i;
+
 async function followup({ job, application, daysSince, seq, cv = {} }) {
   const user = `ROLE: ${job.title} at ${job.company}
 APPLIED: ${daysSince} days ago${seq > 1 ? ` (this is follow-up number ${seq})` : ''}
@@ -367,4 +451,4 @@ async function validateKey(key, providerId = budget.providerId()) {
 }
 
 module.exports = { available, tailor, followup, enforceTruth, extractJson, ping, validateKey,
-  structureResume, enforceResumeTruth, listModels, storedKey };
+  structureResume, enforceResumeTruth, listModels, storedKey, answerFormFields, PROTECTED_QUESTION };

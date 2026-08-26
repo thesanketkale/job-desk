@@ -8,7 +8,8 @@
 const path = require('node:path');
 const fs = require('node:fs');
 const { BrowserWindow, WebContentsView, session, shell, dialog } = require('electron');
-const { buildScript, buildFileInputMatchScript, HIGHLIGHT_CSS } = require('./autofill-script');
+const { buildScript, buildCollectQuestionsScript, buildApplyAnswersScript,
+  buildFileInputMatchScript, HIGHLIGHT_CSS } = require('./autofill-script');
 
 const TOOLBAR_H = 96;
 let win = null;
@@ -117,9 +118,44 @@ function publicContext() {
   };
 }
 
+/**
+ * Two passes. The first is the fixed rule table — name, email, phone, the
+ * fields every form has — which needs no key and is what runs when there is
+ * none. The second only happens when a key exists: it hands the model the
+ * questions the table could not answer (the dropdowns, the free-text
+ * screening questions) along with the CV, and writes back what survives the
+ * guards in ai.js#answerFormFields and buildApplyAnswersScript.
+ *
+ * The AI pass is strictly additive. If it throws — no key, rate limit, spend
+ * cap reached, unparseable reply — the deterministic fill it ran on top of is
+ * already done and still stands, which is why its failure is swallowed rather
+ * than surfaced as a failed fill.
+ */
 async function fillForm() {
   if (!view || !context) throw new Error('No application form is open.');
   const result = await view.webContents.executeJavaScript(buildScript(context.profile), true);
+  result.aiFilled = 0;
+  result.aiTried = false;
+
+  const ai = require('./ai');
+  if (!ai.available()) return result;
+
+  result.aiTried = true;
+  try {
+    const fields = await view.webContents.executeJavaScript(buildCollectQuestionsScript(), true);
+    if (!fields?.length) return result;
+    const answers = await ai.answerFormFields({
+      fields,
+      cv: context.cv || context.profile,
+      job: context.job,
+    });
+    if (!answers.length) return result;
+    const applied = await view.webContents.executeJavaScript(buildApplyAnswersScript(answers), true);
+    result.aiFilled = applied?.filled || 0;
+  } catch (err) {
+    // The rule-based fill above already succeeded; this pass is a bonus.
+    result.aiError = String(err.message || err).slice(0, 200);
+  }
   return result;
 }
 

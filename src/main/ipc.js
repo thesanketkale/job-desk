@@ -447,12 +447,19 @@ function register(ctx) {
     if (!a.job?.apply_url) throw new Error('This role has no application page to open.');
     const cv = masterCv.master();
     const [firstName, ...rest] = String(cv.name).split(' ');
+    // The CV as actually tailored for this role, so the AI pass in
+    // apply-browser.js#fillForm answers screening questions from the same
+    // document the employer is about to receive rather than the master CV.
+    let tailoredCv = cv;
+    try { tailoredCv = JSON.parse(a.resume_json) || cv; } catch { /* keep the master */ }
+
     applyBrowser.open({
       applicationId,
       matchScore: a.match_score,
       pdfPath: a.files.pdf,
       docxPath: a.files.docx,
       job: a.job,
+      cv: tailoredCv,
       profile: {
         firstName,
         lastName: rest.join(' '),

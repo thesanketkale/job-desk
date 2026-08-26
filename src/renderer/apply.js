@@ -52,13 +52,17 @@ $('#fill').addEventListener('click', () => run(
   () => window.applyApi.fill(),
   'Filling what it recognises…',
   (r) => {
-    if (!r.filled.length) {
+    const total = r.filled.length + (r.aiFilled || 0);
+    if (!total) {
       say('Nothing on this page looked like a form field. It may still be loading, or behind a login.', true);
       return;
     }
-    const parts = [`Filled ${r.filled.length} field${r.filled.length === 1 ? '' : 's'} (outlined in green).`];
+    const parts = [`Filled ${total} field${total === 1 ? '' : 's'} (outlined in green).`];
+    if (r.aiFilled) parts.push(`${r.aiFilled} of them answered from your CV.`);
     if (r.fileFields) parts.push('Now attach the CV.');
-    if (r.selects) parts.push(`${r.selects} dropdown${r.selects === 1 ? '' : 's'} still need you.`);
+    // Only worth mentioning the dropdowns still left if some genuinely are.
+    const selectsLeft = Math.max(0, (r.selects || 0) - (r.aiFilled || 0));
+    if (selectsLeft) parts.push(`${selectsLeft} dropdown${selectsLeft === 1 ? '' : 's'} may still need you.`);
     parts.push('Check everything before submitting.');
     say(parts.join(' '));
   },

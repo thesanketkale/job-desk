@@ -23,7 +23,8 @@ const score = require('../src/main/score');
 const claude = require('../src/main/ai');
 const settings = require('../src/main/settings');
 const seed = require('../src/main/seed');
-const { buildScript, buildFileInputMatchScript } = require('../src/main/autofill-script');
+const { buildScript, buildFileInputMatchScript,
+  buildCollectQuestionsScript, buildApplyAnswersScript } = require('../src/main/autofill-script');
 const { pickResumeTargets } = require('../src/main/apply-browser');
 
 /* ------------------------------------------------------------ normalize */
@@ -758,6 +759,88 @@ group('Choosing which file field the CV belongs in');
     JSON.stringify(pickResumeTargets([1, 2, 3], [])) === JSON.stringify([1, 2, 3]));
   ok('every field excluded still attaches somewhere rather than nowhere',
     JSON.stringify(pickResumeTargets([1, 2], [{ exclude: true }, { exclude: true }])) === JSON.stringify([1, 2]));
+}
+
+/* The AI pass answers the dropdowns and screening questions the rule table
+   cannot. It types into a real employer's form under the candidate's name,
+   so what it is NOT allowed to answer matters more than what it is. */
+group('Answering form questions with AI, and the guards on it');
+{
+  const vm = require('node:vm');
+  const fakeSelect = (label, optionTexts, selectedIndex = 0) => {
+    const options = optionTexts.map((t) => ({ text: t, value: t }));
+    return {
+      __select: true, name: '', id: '', placeholder: '', options, selectedIndex,
+      value: '', disabled: false, readOnly: false,
+      getAttribute: (a) => (a === 'aria-label' ? label : null),
+      setAttribute: () => {}, closest: () => null,
+      getBoundingClientRect: () => ({ width: 100, height: 20 }),
+      dispatchEvent: () => true,
+      style: {},
+    };
+  };
+
+  const collect = (selects) => {
+    const context = {
+      document: {
+        querySelectorAll: (sel) => (sel === 'select' ? selects : []),
+        getElementById: () => null,
+      },
+      getComputedStyle: () => ({ visibility: 'visible' }),
+      HTMLTextAreaElement: function HTMLTextAreaElement() {},
+    };
+    vm.createContext(context);
+    return vm.runInContext(buildCollectQuestionsScript(), context);
+  };
+
+  const asked = collect([
+    fakeSelect('Do you require visa sponsorship?', ['Select...', 'Yes', 'No']),
+    fakeSelect('Country', ['Select...', 'India', 'United Kingdom'], 2),
+  ]);
+  ok('an unanswered dropdown is collected with its real options',
+    asked.length === 1 && asked[0].kind === 'select'
+    && asked[0].options.join(',') === 'Select...,Yes,No', JSON.stringify(asked));
+  ok('a dropdown the person already chose is left alone',
+    !asked.some((f) => f.label.includes('country')), JSON.stringify(asked.map((f) => f.label)));
+
+  // Equal-opportunities questions are the candidate's alone to answer. The
+  // prompt forbids them; this is the guard that does not depend on the model
+  // having obeyed it — same reasoning as enforceTruth().
+  const PROTECTED = claude.PROTECTED_QUESTION;
+  for (const q of ['Do you have a disability?', 'Gender', 'Veteran status', 'Ethnicity',
+    'Expected CTC', 'I agree to the terms', 'Please certify the above']) {
+    ok(`refuses to answer: "${q}"`, PROTECTED.test(q.toLowerCase()));
+  }
+  for (const q of ['Do you require visa sponsorship?', 'Notice period', 'Why do you want this role?']) {
+    ok(`still answers: "${q}"`, !PROTECTED.test(q.toLowerCase()));
+  }
+
+  // An answer that is not one of the options the page offers must not be
+  // forced in — checked in ai.js AND again page-side against the live element.
+  const applySrc = buildApplyAnswersScript([
+    { index: 0, value: 'Maybe' },      // not an option
+    { index: 1, value: 'No' },         // a real one
+  ]);
+  const target = fakeSelect('q', ['Select...', 'Yes', 'No']);
+  const other = fakeSelect('q2', ['Select...', 'Yes', 'No']);
+  // instanceof HTMLSelectElement has to be true for the fakes inside the
+  // sandbox. Symbol.hasInstance is non-writable on a plain function, so it is
+  // defined rather than assigned.
+  const FakeSelectClass = function HTMLSelectElement() {};
+  Object.defineProperty(FakeSelectClass, Symbol.hasInstance, { value: (o) => !!(o && o.__select) });
+  const applyCtx = {
+    document: {
+      querySelector: (sel) => (sel.includes('"0"') ? target : sel.includes('"1"') ? other : null),
+    },
+    Event: function Event() {},
+    HTMLSelectElement: FakeSelectClass,
+  };
+  vm.createContext(applyCtx);
+  const applied = vm.runInContext(applySrc, applyCtx);
+  ok('an answer the dropdown does not offer is dropped, not forced in',
+    target.value === '' , JSON.stringify(target.value));
+  ok('an answer that is a real option is applied', other.value === 'No', JSON.stringify(other.value));
+  ok('only the applicable answer is counted', applied.filled === 1, JSON.stringify(applied));
 }
 
 /* pdfkit's unembedded standard fonts can only encode Windows-1252 — anything

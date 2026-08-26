@@ -112,6 +112,108 @@ function buildScript(profile) {
 }
 
 /**
+ * Returned as a string and evaluated after buildScript() has done what plain
+ * keyword matching can. Reports the fields it could not answer — the dropdowns
+ * and the free-text screening questions ("why do you want to work here",
+ * "do you need visa sponsorship") that a fixed rule table has no way to read.
+ *
+ * Each field is stamped with `data-jobdesk-q="<index>"` as it is collected, so
+ * the answers can be written back to exactly the same elements afterwards even
+ * if the page re-orders or re-renders in between. Radio and checkbox groups
+ * are deliberately not collected: they are frequently the legally-loaded
+ * questions (disability, veteran status, gender), and a wrong guess there is
+ * worse than an unanswered one.
+ */
+function buildCollectQuestionsScript() {
+  return `(() => {
+  ${LABEL_FOR_SRC}
+  const visible = (el) => {
+    if (el.disabled || el.readOnly) return false;
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== 'hidden';
+  };
+
+  const out = [];
+  let index = 0;
+
+  const textish = [...document.querySelectorAll(
+    'input[type=text], input[type=email], input[type=tel], input[type=url], input:not([type]), textarea'
+  )].filter(visible).filter((el) => !String(el.value || '').trim());
+  for (const el of textish) {
+    el.setAttribute('data-jobdesk-q', String(index));
+    out.push({
+      index, kind: el instanceof HTMLTextAreaElement ? 'long' : 'short',
+      label: labelFor(el).slice(0, 300), options: [],
+    });
+    index++;
+  }
+
+  const selects = [...document.querySelectorAll('select')].filter(visible);
+  for (const el of selects) {
+    // An untouched dropdown usually sits on a placeholder ("Select...", "--")
+    // rather than on an empty value, so selectedIndex is the honest test.
+    const chosen = el.options[el.selectedIndex];
+    const alreadyAnswered = el.selectedIndex > 0 && chosen && String(chosen.value || '').trim();
+    if (alreadyAnswered) continue;
+    el.setAttribute('data-jobdesk-q', String(index));
+    out.push({
+      index, kind: 'select', label: labelFor(el).slice(0, 300),
+      options: [...el.options].map((o) => (o.text || o.value || '').trim()).filter(Boolean).slice(0, 40),
+    });
+    index++;
+  }
+
+  return out;
+})()`;
+}
+
+/**
+ * Writes the model's answers back. Values are matched against the element's
+ * real options for a dropdown — an answer that is not one of the choices the
+ * page actually offers is dropped rather than forced in, which is the same
+ * principle as ai.js#enforceTruth: the model proposes, the code decides what
+ * is allowed through.
+ */
+function buildApplyAnswersScript(answers) {
+  return `(() => {
+  const ANSWERS = ${JSON.stringify(answers)};
+  let filled = 0;
+
+  const fire = (el) => {
+    el.dispatchEvent(new Event('input',  { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new Event('blur',   { bubbles: true }));
+    el.style.outline = '2px solid #3f5d4b';
+    el.style.outlineOffset = '1px';
+    el.setAttribute('data-jobdesk-filled', '1');
+  };
+
+  for (const a of ANSWERS) {
+    const el = document.querySelector('[data-jobdesk-q="' + a.index + '"]');
+    if (!el || !String(a.value || '').trim()) continue;
+    if (String(el.value || '').trim()) continue;          // someone typed in it meanwhile
+
+    if (el instanceof HTMLSelectElement) {
+      const want = String(a.value).trim().toLowerCase();
+      const match = [...el.options].find((o) => (o.text || '').trim().toLowerCase() === want)
+        || [...el.options].find((o) => (o.value || '').trim().toLowerCase() === want);
+      if (!match) continue;                               // not on offer — leave it alone
+      el.value = match.value;
+      fire(el);
+      filled++;
+      continue;
+    }
+
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(el, String(a.value));
+    fire(el);
+    filled++;
+  }
+  return { filled };
+})()`;
+}
+
+/**
  * Returned as a string and evaluated ahead of attaching the CV. Reports, for
  * every file-upload field on the page in document order, whether its label
  * reads as the resume/CV field and whether it reads as clearly something
@@ -137,4 +239,5 @@ const HIGHLIGHT_CSS = `
   [data-jobdesk-filled] { background-color: rgba(63,93,75,.06) !important; }
 `;
 
-module.exports = { buildScript, buildFileInputMatchScript, HIGHLIGHT_CSS };
+module.exports = { buildScript, buildCollectQuestionsScript, buildApplyAnswersScript,
+  buildFileInputMatchScript, HIGHLIGHT_CSS };
