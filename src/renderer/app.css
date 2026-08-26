@@ -353,10 +353,21 @@ select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,v
 .spin{width:15px; height:15px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%;
   display:inline-block; animation:sp .7s linear infinite}
 @keyframes sp{to{transform:rotate(360deg)}}
-.stat{display:flex; flex-direction:column; gap:var(--s1); padding:var(--s4); background:var(--surface);
-  border:1px solid var(--hair); border-radius:var(--r-lg)}
-.stat b{font-family:var(--serif); font-size:var(--t-2xl); line-height:1; color:var(--ink); font-weight:500}
-.stat span{font-size:var(--t-xs); letter-spacing:.08em; text-transform:uppercase; color:var(--muted)}
+/* min-width:0 overrides the flex/grid default of min-width:auto, which
+   floors a .stat at the width of its longest unbreakable word (e.g.
+   "APPLICATION") — in three of these side by side in a narrower card
+   (Settings' spending-limit panel), that floor added up to wider than the
+   card itself, so the row spilled past its border instead of wrapping. */
+.stat{display:flex; flex-direction:column; gap:var(--s1); padding:var(--s3) var(--s4); background:var(--surface);
+  border:1px solid var(--hair); border-radius:var(--r-lg); min-width:0}
+/* --t-xl rather than the --t-2xl this used before — three of these side by
+   side in a narrower card (Settings' spending-limit panel) had less room
+   than a lone stat elsewhere gets, and the smaller size buys back the
+   headroom that min-width:0 alone left tight rather than generous. */
+.stat b{font-family:var(--serif); font-size:var(--t-xl); line-height:1.15; color:var(--ink); font-weight:500;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
+.stat span{font-size:var(--t-xs); letter-spacing:.06em; text-transform:uppercase; color:var(--muted);
+  line-height:1.3}
 
 /* auth */
 .auth-page{display:grid; place-items:center; min-height:100vh; padding:var(--s5)}
