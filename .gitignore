@@ -13,3 +13,8 @@ scripts/signing/
 # resources/master-resume.example.json is what ships in the build.
 resources/master-resume.json
 /.claude
+
+# Service API keys baked into a release build (scripts/write-baked-keys.mjs,
+# from GitHub Actions secrets). Real values only ever exist on the CI runner
+# for the duration of that one build — never in the repository.
+src/main/baked-keys.js

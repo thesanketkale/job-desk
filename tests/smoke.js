@@ -342,6 +342,49 @@ group('Update feed');
     JSON.stringify(t3));
 }
 
+group('Baked build keys');
+{
+  // Exercises the real gitignored file, not a mock: writes it exactly the
+  // way scripts/write-baked-keys.mjs does, forces settings.js to re-require
+  // it, then restores whatever was there (nothing, in every normal checkout).
+  const bakedPath = path.join(__dirname, '..', 'src', 'main', 'baked-keys.js');
+  const settingsPath = require.resolve('../src/main/settings');
+  const hadFile = fs.existsSync(bakedPath);
+  const original = hadFile ? fs.readFileSync(bakedPath, 'utf8') : null;
+
+  fs.writeFileSync(bakedPath, "module.exports = { gemini_api_key: 'baked-test-key',"
+    + " jooble: { api_key: 'baked-jooble-key' } };\n");
+  delete require.cache[settingsPath];
+  const s = require('../src/main/settings');
+
+  try {
+    ok('a key with nothing saved falls back to the baked one',
+      s.getSecret('gemini_api_key', '') === 'baked-test-key');
+    ok('an object-shaped baked key round-trips whole',
+      s.getSecret('jooble', {}).api_key === 'baked-jooble-key');
+    ok('a key with no baked value and nothing saved still falls to the caller’s fallback',
+      s.getSecret('smtp_password', 'none') === 'none');
+
+    s.setSecret('gemini_api_key', 'her-own-key');
+    ok('a key she saves herself wins over the baked one',
+      s.getSecret('gemini_api_key', '') === 'her-own-key');
+
+    s.setSecret('gemini_api_key', '');
+    ok('clearing her own key falls back to the baked one again',
+      s.getSecret('gemini_api_key', '') === 'baked-test-key');
+
+    db.run("UPDATE sources SET active = 0 WHERE type = 'jooble'");
+    s.activateSourcesWithKeys();
+    ok('a baked job-source key switches its source on',
+      db.get("SELECT active FROM sources WHERE type = 'jooble'")?.active === 1);
+  } finally {
+    if (hadFile) fs.writeFileSync(bakedPath, original); else fs.unlinkSync(bakedPath);
+    s.setSecret('gemini_api_key', '');
+    delete require.cache[settingsPath];
+    require('../src/main/settings');   // put the real (empty) module back for later tests
+  }
+}
+
 /* electron-updater's getLatestVersionInfo() wraps ANY failure in the same
    "Unable to find latest version on GitHub ... please ensure a production
    release exists" framing before the real HttpError — confirmed live with a

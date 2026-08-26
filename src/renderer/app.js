@@ -793,6 +793,10 @@ VIEWS.welcome = async function welcome() {
       const n = out.keywords?.added || 0;
       toast(`Set up for ${out.cv.name} — ${n} search word${n === 1 ? '' : 's'} from your resume.`);
       pendingImport = null;
+      // A build with a key already baked in (see settings.js) has nothing left
+      // to ask for — the key step exists for someone bringing their own.
+      const d = await call(window.api.dashboard.get, {});
+      if (d.aiEnabled) { location.hash = '#/today'; return; }
       // The app is usable from this moment. The key step is genuinely optional,
       // and skipping it must cost nothing, so it comes after the setup is done.
       $('#w-head').textContent = `You are set up, ${String(out.cv.name).split(' ')[0]}`;

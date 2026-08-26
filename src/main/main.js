@@ -164,6 +164,11 @@ app.whenReady().then(() => {
   try {
     db.init(dataDir());
     seed.seedIfEmpty();
+    // Idempotent: flips on any job source whose key exists, whether she saved
+    // it herself or it was baked into this build (see settings.js). Runs every
+    // launch so a source added after her install still activates without her
+    // ever opening Settings.
+    settings.activateSourcesWithKeys();
   } catch (err) {
     dialog.showErrorBox('Job Desk could not start',
       `The database could not be opened.\n\n${err.message}\n\nFolder: ${dataDir()}`);

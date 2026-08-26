@@ -34,6 +34,27 @@ jobs:
       - name: Run the tests before building anything
         run: npm test
 
+      # Writes src/main/baked-keys.js from repo secrets so the installed app
+      # works with nothing but a resume and an email — see
+      # scripts/write-baked-keys.mjs for exactly which secrets and why. The
+      # file only ever exists here, on the runner, for this one build; it is
+      # gitignored and never committed. Every BAKED_* secret is optional —
+      # this step still succeeds, producing an app with no keys baked in,
+      # same as before this existed.
+      - name: Bake service keys into this build
+        env:
+          BAKED_GEMINI_API_KEY: ${{ secrets.BAKED_GEMINI_API_KEY }}
+          BAKED_ANTHROPIC_API_KEY: ${{ secrets.BAKED_ANTHROPIC_API_KEY }}
+          BAKED_OPENROUTER_API_KEY: ${{ secrets.BAKED_OPENROUTER_API_KEY }}
+          BAKED_GITHUB_PAT: ${{ secrets.BAKED_GITHUB_PAT }}
+          BAKED_ADZUNA_APP_ID: ${{ secrets.BAKED_ADZUNA_APP_ID }}
+          BAKED_ADZUNA_APP_KEY: ${{ secrets.BAKED_ADZUNA_APP_KEY }}
+          BAKED_JOOBLE_API_KEY: ${{ secrets.BAKED_JOOBLE_API_KEY }}
+          BAKED_JSEARCH_API_KEY: ${{ secrets.BAKED_JSEARCH_API_KEY }}
+          BAKED_ACTIVEJOBSDB_API_KEY: ${{ secrets.BAKED_ACTIVEJOBSDB_API_KEY }}
+          BAKED_YCJOBS_API_KEY: ${{ secrets.BAKED_YCJOBS_API_KEY }}
+        run: node scripts/write-baked-keys.mjs
+
       # Built once, without publishing, so the privacy check happens before
       # anything can reach a public repository.
       #

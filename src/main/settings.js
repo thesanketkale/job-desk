@@ -12,6 +12,12 @@ if (process.versions.electron) {
   try { ({ safeStorage } = require('electron')); } catch { /* main process not ready */ }
 }
 
+// Service keys baked into this build at packaging time — see
+// scripts/write-baked-keys.mjs. The file is gitignored and does not exist in a
+// plain checkout, so a from-scratch install still works with no keys at all.
+let baked = {};
+try { baked = require('./baked-keys'); } catch { /* not baked into this build */ }
+
 const DEFAULTS = {
   work_mode_preference: { remote: 12, hybrid: 5, onsite: 0 },
   preferred_countries: ['India', 'Remote'],
@@ -88,7 +94,9 @@ const deadSecretKeys = new Set();
 
 function getSecret(key, fallback = null) {
   const row = db.get('SELECT v FROM settings WHERE k = ?', [`secret:${key}`]);
-  if (!row) { deadSecretKeys.delete(key); return fallback; }
+  // A key she pastes into Settings herself always wins — a baked key is a
+  // floor to build on, not a lock on the door.
+  if (!row) { deadSecretKeys.delete(key); return key in baked ? baked[key] : fallback; }
   try {
     const stored = JSON.parse(row.v);
     const raw = stored.enc === 'os'
@@ -118,6 +126,23 @@ function checkSecretsHealth() {
 }
 
 const hasSecret = (key) => !!db.get('SELECT 1 AS x FROM settings WHERE k = ?', [`secret:${key}`]);
+
+/** Which job source belongs to which credential — mirrors SECRET_OF in app.js. */
+const SOURCE_FOR_SECRET = { jooble: 'jooble', jsearch: 'jsearch', activejobsdb: 'activejobsdb', ycjobs: 'ycjobs' };
+
+/**
+ * Flips a job source on the moment its key exists — saved by hand or baked
+ * into the build — so having the key is the only step, never a separate
+ * switch to remember on the Sources page. Idempotent; safe on every launch.
+ */
+function activateSourcesWithKeys() {
+  for (const [secretKey, sourceType] of Object.entries(SOURCE_FOR_SECRET)) {
+    const v = getSecret(secretKey, null);
+    if (v && Object.values(v).some(Boolean)) {
+      db.run('UPDATE sources SET active = 1 WHERE type = ?', [sourceType]);
+    }
+  }
+}
 
 /** Everything the fetchers and the mailer need, gathered in one place. */
 function secrets() {
@@ -151,6 +176,10 @@ function redacted() {
     smtp_user: get('smtp_user', ''),
     smtp_from_name: get('smtp_from_name', ''),
     smtp_from_email: get('smtp_from_email', ''),
+    // hasSecret, not getSecret: this is what draws the "Remove it" buttons in
+    // Settings, and a baked-in key has no row to remove — showing it as
+    // "saved" would make Remove a silent no-op. A baked key still works
+    // (getSecret falls back to it); Settings just has nothing to say about it.
     has_anthropic_key: hasSecret('anthropic_api_key'),
     has_gemini_key: hasSecret('gemini_api_key'),
     has_openrouter_key: hasSecret('openrouter_api_key'),
@@ -166,4 +195,4 @@ function redacted() {
 }
 
 module.exports = { DEFAULTS, get, set, all, setSecret, getSecret, hasSecret, secrets, redacted,
-  deadSecrets, checkSecretsHealth };
+  deadSecrets, checkSecretsHealth, activateSourcesWithKeys };

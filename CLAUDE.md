@@ -190,6 +190,23 @@ is excluded from `build.files`; the CV is copied into the user's data folder on
 first run. This is what makes the public releases repo safe. There is a test and
 a CI step guarding it.
 
+**Service API keys baked into the build are deliberate — this is not the same
+promise as no personal data.** This install is for one household, so every
+job-source key and the AI key are ours, not something Srishti is expected to
+go and get; `scripts/write-baked-keys.mjs` writes them into gitignored
+`src/main/baked-keys.js` from GitHub Actions secrets right before packaging,
+and `settings.js#getSecret` falls back to it when nothing is saved in the
+database. A key she pastes into Settings herself always wins — the row is
+checked first. `check-build-privacy.mjs` does not and should not flag this:
+it greps for CV values and the `KNOWN_SENSITIVE` list, not credentials: a
+service key is not personal data, and it is meant to ship. What must still
+never happen is the reverse — a real key typed directly into source instead
+of read from `baked-keys.js` at runtime, which is exactly the class of
+mistake that check exists to catch. Whoever holds the repo's Actions secrets
+holds every one of these; keep spend caps in place on each account regardless
+of `budget.js`'s own cap, since an extracted key answers to the provider's
+limit, not this app's.
+
 ## Where things are
 
 | Path | What |

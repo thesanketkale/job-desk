@@ -293,12 +293,9 @@ function register(ctx) {
     // active: 0 because a source with no key would fail loudly on the very
     // next refresh. Flip it on the moment its key is first saved, so saving
     // a key is the only step, not saving-then-remembering-the-Sources-page.
-    const SOURCE_FOR_SECRET = {
-      jooble: 'jooble', jsearch: 'jsearch', activejobsdb: 'activejobsdb', ycjobs: 'ycjobs',
-    };
-    if (SOURCE_FOR_SECRET[key] && value && Object.values(value).some(Boolean)) {
-      db.run('UPDATE sources SET active = 1 WHERE type = ?', [SOURCE_FOR_SECRET[key]]);
-    }
+    // The same helper runs at launch too, so a baked-in build key (see
+    // settings.js) activates its source without anyone having to save anything.
+    settings.activateSourcesWithKeys();
     // Saving or clearing the token changes which GitHub provider electron-updater
     // uses (public vs. authenticated) — see updater.js#applyFeed. Re-apply it
     // immediately rather than waiting for the next launch. A token that was
@@ -322,6 +319,9 @@ function register(ctx) {
   handle('ai:providers', () => ({
     providers: providers.catalogue().map((p) => ({
       ...p,
+      // hasSecret, not getSecret: this decides "(key saved)" in the picker and
+      // whether switching providers demands a key first — same reasoning as
+      // settings.js#redacted, a baked key has no row to warn her is missing.
       hasKey: settings.hasSecret(providers.get(p.id).secret),
       // budget.modelsFor() is the one place that merges the provider's own live
       // catalogue into the hard-coded table. This used to keep a second copy of
