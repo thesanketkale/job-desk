@@ -134,13 +134,21 @@ function init(getWindow) {
     const win = getWindow?.();
     const { response } = await dialog.showMessageBox(win, {
       type: 'info',
-      buttons: ['Install and restart', 'Later'],
+      buttons: ['Update now', 'Do it later'],
       defaultId: 0,
       cancelId: 1,
       message: `Version ${info.version} is ready`,
-      detail: 'It installs in a few seconds. Nothing you have saved is affected.',
+      detail: '"Update now" closes the app and installs straight away, reopening once it is '
+        + 'done. "Do it later" installs the same way, quietly, the next time the app is closed — '
+        + 'nothing you have saved is affected either way.',
     });
-    if (response === 0) autoUpdater.quitAndInstall();
+    // isSilent, isForceRunAfter: bare quitAndInstall() defaults to isSilent:false, which shows
+    // the NSIS installer's own wizard instead of just closing and updating — the opposite of what
+    // this button promises. The "Do it later" path never touches this: electron-updater's own
+    // BaseUpdater#addQuitHandler installs on any normal app quit once a download finishes,
+    // silently and without reopening (install(true, false)) — that quiet close-to-update
+    // behaviour has worked since autoInstallOnAppQuit was first set, not something added here.
+    if (response === 0) autoUpdater.quitAndInstall(true, true);
   });
 
   autoUpdater.on('error', (err) => {

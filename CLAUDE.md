@@ -241,6 +241,21 @@ window buttons sit off-centre against the bar. The wordmark reads "*First
 name*'s Job Desk", built from `profile_name`, and is hidden along with the
 rest of the masthead on the welcome screen, before there is a name to show.
 
+**`quitAndInstall()` needs its two booleans spelled out, or "Update now" shows
+a wizard.** `updater.js`'s downloaded-update dialog calls
+`autoUpdater.quitAndInstall(true, true)` — `isSilent` first, `isForceRunAfter`
+second. Bare `quitAndInstall()` defaults `isSilent` to `false`, which runs the
+NSIS installer's own multi-click wizard (`nsis.oneClick: false` in
+`package.json`) instead of closing and updating straight away, and reopens
+the app afterwards only because `autoRunAppAfterInstall` happens to default
+to `true` — relying on that default is how this shipped wrong the first time.
+The other path — closing the app once a download has finished, without
+choosing either dialog button — was never broken: `electron-updater`'s own
+`BaseUpdater#addQuitHandler` installs on any normal quit the moment a
+download completes, silently and without reopening (`install(true, false)`),
+wired the instant `autoDownload` finishes. `autoInstallOnAppQuit: true` is
+what arms it; nothing in this codebase calls it directly.
+
 ## Where things are
 
 | Path | What |
