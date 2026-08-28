@@ -30,7 +30,10 @@ function applyContext(c) {
   $('#role-title').textContent = c.job.title || '';
   $('#role-sub').textContent = [c.job.company, c.job.location_raw].filter(Boolean).join(' · ');
   $('#attach').disabled = !c.hasPdf;
+  $('#attach').textContent = `Attach the ${c.resumeLabel || 'CV'}`;
+  $('#reveal').textContent = `Preview the ${c.resumeLabel || 'CV'}`;
   $('#copy-cover').disabled = !c.coverLetter;
+  say(`${c.resumeLabel === 'original CV' ? 'The original CV will be used.' : 'An AI-tailored CV will be used.'} You press Submit.`);
 }
 
 window.applyApi.onContext(applyContext);
@@ -58,7 +61,8 @@ $('#fill').addEventListener('click', () => run(
       return;
     }
     const parts = [`Filled ${total} field${total === 1 ? '' : 's'} (outlined in green).`];
-    if (r.aiFilled) parts.push(`${r.aiFilled} of them answered from your CV.`);
+    if (r.aiFilled) parts.push(`${r.aiFilled} of them were answered by AI from your CV.`);
+    else parts.push('Saved details were used; AI did not add any form answers.');
     if (r.fileFields) parts.push('Now attach the CV.');
     // Only worth mentioning the dropdowns still left if some genuinely are.
     const selectsLeft = Math.max(0, (r.selects || 0) - (r.aiFilled || 0));
@@ -70,7 +74,7 @@ $('#fill').addEventListener('click', () => run(
 
 $('#attach').addEventListener('click', () => run(
   () => window.applyApi.attach('pdf'),
-  'Attaching the tailored CV…',
+  'Attaching the application CV...',
   (r) => say(`Attached ${r.file}. Check the upload field shows it, then submit.`),
 ));
 

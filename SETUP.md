@@ -11,7 +11,7 @@ Unzip the bundle somewhere sensible — `D:\projects\jobdesk` or similar — the
 ```bash
 cd jobdesk
 npm install
-npm test          # 344 checks, should all pass
+npm test          # 361 checks, should all pass
 npm start         # the app opens
 ```
 
@@ -101,11 +101,40 @@ git ls-files | grep master-resume
 # should show only master-resume.example.json
 ```
 
-## 5. No secrets to configure
+## 5. Optional service secrets
 
-Nothing. `GITHUB_TOKEN` is issued automatically for each workflow run and can
-publish releases to its own repository. This is the main practical advantage of
-going public.
+`GITHUB_TOKEN` is issued automatically for each workflow run and can publish
+releases to its own repository.
+
+For the personal installer, add these under **Settings > Secrets and variables >
+Actions** in the GitHub repository:
+
+| Name | Purpose |
+|---|---|
+| `BAKED_GEMINI_API_KEY` | Tries Gemini 3.7 Flash, 3.6 Flash, then 3.5 Flash. |
+| `BAKED_OPENROUTER_API_KEY` | Enables the rotating `openrouter/free` backup. |
+| `BAKED_ANTHROPIC_API_KEY` | Enables Claude as the final AI backup. |
+
+Use encrypted Actions secrets for API keys. The workflow also accepts repository
+variables for the OpenRouter and Anthropic names when that is useful for a private,
+personal repository, but variables are visible to repository collaborators and are
+not the recommended place for credentials. If both exist, the encrypted secret wins.
+
+Every key is optional. The fixed order is Gemini direct, OpenRouter Free, Claude,
+then the original CV and local templates when no AI service succeeds.
+
+If either optional value is absent, GitHub Actions passes an empty environment
+value and `write-baked-keys.mjs` omits it from the generated key bundle. The app
+does not call that provider with an empty key; it skips directly to the next
+configured route. If both are absent, Gemini still runs when configured, followed
+by the original-CV fallback.
+
+Adding or changing a repository secret affects installers built after that
+change. An already-installed copy does not need a new build: a key entered under
+**Settings > AI tailoring** is validated and encrypted locally, takes precedence
+over a baked key, and is used from the next request. Removing a locally saved key
+reveals the baked key again when the installer contains one; otherwise that
+provider is skipped.
 
 ## 6. Cut the first release
 

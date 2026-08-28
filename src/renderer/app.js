@@ -404,26 +404,41 @@ async function showApplication(id) {
 
 function renderApplication(a) {
   const j = a.job || {};
-  const sent = ['sent', 'submitted', 'replied', 'interview', 'offer'].includes(a.status);
+  const sent = ['sent', 'submitted', 'replied', 'interview', 'rejected', 'offer', 'withdrawn'].includes(a.status);
   $('#drawer-title').textContent = j.title || 'Application';
   $('#drawer-sub').textContent = `${j.company || ''} · ${j.location_raw || ''}`;
 
   const template = a.mode !== 'ai';
+  const resumeLabel = template ? 'original CV' : 'AI-tailored CV';
+  const automation = Array.isArray(a.automation_log) ? a.automation_log : [];
+  const preparation = automation.map((entry) => {
+    if (entry.kind === 'ai') {
+      return `<li><b>AI used:</b> ${esc(entry.provider || 'AI service')}${entry.model ? ` (${esc(entry.model)})` : ''}. ${esc(entry.detail || describeActions(entry.actions))}</li>`;
+    }
+    return `<li><b>No AI:</b> ${esc(entry.detail || describeActions(entry.actions) || 'Original CV and local templates were used.')}</li>`;
+  }).join('') || `<li>${template ? 'Original CV and local templates were used.' : 'AI was used to prepare this application.'}</li>`;
   const WARN = /\bnot\b|\bno\b|lack|requir|licen|visa|missing|unlikely|blocker|removed|stretch|template|keyword/i;
   const notes = (a.match_notes || []).map((n) =>
     `<li class="${WARN.test(n) ? 'warn' : ''}">${esc(n)}</li>`).join('')
     || '<li>No notes came back for this one.</li>';
 
   const fileRow = `<div class="row" style="margin-top:var(--s3);flex-wrap:wrap">
-      <button class="btn btn--sm" data-file="open:pdf">Open the PDF</button>
-      <button class="btn btn--sm" data-file="open:docx">Open the Word version</button>
+      <button class="btn btn--sm" data-file="open:pdf">${sent ? 'Open the sent PDF' : 'Review the PDF'}</button>
+      <button class="btn btn--sm" data-file="open:docx">Open editable Word copy</button>
       <button class="btn btn--sm" data-file="saveAs:pdf">Save a copy…</button>
       <button class="btn btn--ghost btn--sm" data-file="reveal:pdf">Show me the file</button>
     </div>`;
 
   $('#drawer-body').innerHTML = `
     ${sent ? `<p class="flash flash--ok">Sent ${esc(ago(a.sent_at))}${
-      a.to_email ? ` to ${esc(a.to_email)}` : ' through the company form'}. This is exactly what went out.</p>` : ''}
+      a.to_email ? ` to ${esc(a.to_email)}` : ' through the company form'}. The PDF below is the CV recorded as sent.</p>` : ''}
+
+    <div class="panel">
+      <div class="panel__head"><h3>How this application was prepared</h3>
+        <span class="pill pill--${template ? 'draft' : 'sent'}">${template ? 'original CV' : 'AI assisted'}</span></div>
+      <ul class="notes" style="margin-top:var(--s3)">${preparation}</ul>
+      <p class="small muted" style="margin-top:var(--s3)">The ${resumeLabel} PDF shown below is the exact file kept with this application. The Word copy is only an editable backup.</p>
+    </div>
 
     <div class="panel">
       <div class="ring">
@@ -436,11 +451,11 @@ function renderApplication(a) {
     </div>
 
     <div class="panel">
-      <div class="panel__head"><h3>${template ? 'Your CV' : 'The tailored CV'}</h3>
+      <div class="panel__head"><h3>${template ? 'The original CV' : 'The AI-tailored CV'}</h3>
         ${template ? '<span class="pill pill--draft">master copy</span>'
     : '<span class="pill pill--sent">rewritten for this role</span>'}</div>
       <p class="small muted">${template
-    ? 'Your full CV, exactly as it is on the Settings page. With a Claude key it would be rewritten for this particular job — reordered, reworded, and trimmed to what this employer asked for.'
+    ? 'Your full original CV, exactly as it is on the Settings page. AI did not edit this copy. The email and covering letter came from the saved local templates.'
     : 'Rewritten for this role. Dates, employers, degrees and the session count are locked to the master CV and cannot be changed by the rewrite.'}</p>
       ${fileRow}
       ${template ? `<p class="inline-note" style="margin-top:var(--s3)">
@@ -559,7 +574,7 @@ function renderApplication(a) {
     const blocking = rails.problems.filter((p) => !/no email address/i.test(p));
     if (blocking.length) { oops(new Error(blocking[0])); return; }
 
-    if (!confirmSend(to, j.company)) return;
+    if (!confirmSend(to, j.company, resumeLabel)) return;
     btn.disabled = true;
     btn.innerHTML = '<span class="spin"></span> Sending…';
     try {
@@ -578,10 +593,25 @@ function renderApplication(a) {
   });
 }
 
-function confirmSend(to, company) {
+function confirmSend(to, company, resumeLabel) {
   // eslint-disable-next-line no-alert
   return window.confirm(`Send this application to ${to}${company ? ` at ${company}` : ''} now?\n\n`
+    + `The ${resumeLabel || 'CV'} shown in this application will be attached and archived.\n\n`
     + 'It cannot be unsent once it goes.');
+}
+
+function describeActions(actions) {
+  const labels = {
+    cv_tailoring: 'Edited the CV for this role.',
+    email_draft: 'Drafted the email.',
+    cover_letter_draft: 'Drafted the covering letter.',
+    form_answers: 'Answered supported form questions from the CV.',
+    form_autofill: 'Filled form fields from saved details.',
+    original_cv: 'The original CV was used without AI edits.',
+    email_template: 'The email came from a local template.',
+    cover_letter_template: 'The covering letter came from a local template.',
+  };
+  return (actions || []).map((action) => labels[action]).filter(Boolean).join(' ');
 }
 
 /* ============================================================== WELCOME */
@@ -944,7 +974,8 @@ const appFilter = { status: '', search: '' };
 VIEWS.applications = async function applications() {
   const d = await call(window.api.applications.list, appFilter);
   const c = d.counts;
-  const sent = (c.sent || 0) + (c.submitted || 0) + (c.replied || 0) + (c.interview || 0) + (c.offer || 0);
+  const sent = (c.sent || 0) + (c.submitted || 0) + (c.replied || 0) + (c.interview || 0)
+    + (c.rejected || 0) + (c.offer || 0) + (c.withdrawn || 0);
   const replies = (c.replied || 0) + (c.interview || 0) + (c.offer || 0);
   const total = Object.values(c).reduce((a, b) => a + b, 0);
 
@@ -970,6 +1001,7 @@ VIEWS.applications = async function applications() {
 function appRow(a) {
   const notes = (a.match_notes || []).map((n) => `<li>${esc(n)}</li>`).join('');
   const nextFu = (a.followups || []).find((f) => f.status === 'scheduled');
+  const usedAi = a.mode === 'ai';
   return `<tr>
     <td>
       <div class="t-title">${esc(a.title)}</div>
@@ -990,7 +1022,8 @@ function appRow(a) {
       ${nextFu ? `<div class="inline-note">Follow-up ${nextFu.seq} ${esc(dueLabel(nextFu.due_on).text)}</div>` : ''}
     </td>
     <td><strong style="font-variant-numeric:tabular-nums">${a.match_score}</strong></td>
-    <td><span class="pill pill--${esc(a.status)}">${esc(a.status)}</span></td>
+    <td><span class="pill pill--${esc(a.status)}">${esc(a.status)}</span>
+      <div class="small muted" style="margin-top:var(--s2)">${usedAi ? 'AI-tailored CV' : 'Original CV'}</div></td>
     <td class="small muted">${esc(ago(a.sent_at || a.created_at))}</td>
     <td><button class="btn btn--sm" data-open-app="${a.id}">Open</button></td>
   </tr>`;
@@ -1390,11 +1423,11 @@ VIEWS.settings = async function settingsView() {
         <li><b>An honest read on whether you qualify</b> — including blockers like a licence you do
           not hold, which keyword matching cannot see.</li>
       </ul>
-      <p class="small muted">Follow-up notes get written for you too. Billed per use against your own
-        account with whichever service you pick — a consumer chat subscription is a different thing
-        and cannot be used here.</p>
+      <p class="small muted">The app always tries the free services first: Gemini 3.7 Flash, Gemini 3.6
+        Flash, Gemini 3.5 Flash, then OpenRouter Free. Claude is used only as the last AI backup when its
+        key is available. If every AI service fails, the original CV and local templates are used.</p>
 
-      <label class="field" style="margin-top:var(--s4)"><span>Which service</span>
+      <label class="field" style="margin-top:var(--s4)"><span>API key to add or check</span>
         <select id="s-provider"></select>
         <span class="inline-note" id="s-provider-hint"></span></label>
       <p class="inline-note" id="s-provider-data" style="margin-top:var(--s2)"></p>
@@ -1410,15 +1443,8 @@ VIEWS.settings = async function settingsView() {
         ${s.has_anthropic_key || s.has_gemini_key || s.has_openrouter_key ? '<button class="btn btn--ghost btn--sm btn--danger" id="s-claude-clear">Remove it</button>' : ''}
       </div>
 
-      <label class="field" style="margin-top:var(--s5)"><span>Which model to use</span>
-        <select id="s-model">
-          ${Object.entries(b.pricing).map(([id, p]) =>
-    `<option value="${esc(id)}" ${id === b.model ? 'selected' : ''}>${esc(p.label)}</option>`).join('')}
-        </select>
-        <span class="inline-note" id="s-model-note">A cheaper model is usually good enough for this.
-          The list is refreshed from the service each time a key is checked, so it does not go
-          stale.</span>
-      </label>
+      <p class="inline-note" style="margin-top:var(--s4)">The order is fixed deliberately, so a settings
+        change cannot accidentally replace the free-first safety chain.</p>
     </section>
 
     <section class="panel">
@@ -1426,9 +1452,8 @@ VIEWS.settings = async function settingsView() {
         <span class="pill pill--${b.capped ? (b.percent >= 80 ? 'queued' : 'sent') : 'draft'}">
           ${b.capped ? `${b.percent}% used` : 'no limit'}</span>
       </div>
-      <p class="small muted">A hard stop, checked before every single request. When the month's limit is
-        reached the app simply refuses to tailor anything else until it is raised or the month turns over.
-        It cannot be exceeded by accident.</p>
+      <p class="small muted">Gemini and OpenRouter Free never count against this limit. It is checked before
+        the paid Claude fallback is called, so Claude cannot exceed the monthly amount by accident.</p>
 
       <label class="field" style="margin-top:var(--s4)"><span>Most to spend in a month (US dollars)</span>
         <input type="number" id="s-budget" min="0" max="500" step="1" value="${b.cap}">
@@ -1440,17 +1465,15 @@ VIEWS.settings = async function settingsView() {
         <p class="inline-note" style="margin-top:var(--s2)">
           $${b.spent.toFixed(2)} of $${b.cap.toFixed(2)} used this month.
           About $${(b.remaining || 0).toFixed(2)} left — roughly
-          ${Math.floor((b.remaining || 0) / (b.perApplication || 1))} more applications.
+          ${Math.floor((b.remaining || 0) / (b.paidFallbackPerApplication || 1))} Claude fallbacks.
           Resets on the 1st.</p></div>` : ''}
 
       <div class="row" style="margin-top:var(--s5);gap:var(--s3)">
-        <div class="stat" style="flex:1"><b>$${(b.perApplication || 0).toFixed(3)}</b><span>Per app</span></div>
+        <div class="stat" style="flex:1"><b>$${(b.paidFallbackPerApplication || 0).toFixed(3)}</b><span>Claude fallback</span></div>
         <div class="stat" style="flex:1"><b>${s.tailor_count || 0}</b><span>Tailored so far</span></div>
         <div class="stat" style="flex:1"><b>$${(s.spend_usd || 0).toFixed(2)}</b><span>Spent, all time</span></div>
       </div>
-      <p class="inline-note" style="margin-top:var(--s3)">That is roughly
-        ₹${Math.round((b.perApplication || 0) * 88)} per tailored application on ${esc(b.modelLabel.split(' —')[0])}.
-        Follow-up drafts cost a fraction of that.</p>
+      <p class="inline-note" style="margin-top:var(--s3)">The first four model routes are free. The estimate above applies only when they all fail and Claude is used. Follow-up drafts cost a fraction of that.</p>
     </section>
 
     <section class="panel">
@@ -1589,7 +1612,7 @@ VIEWS.settings = async function settingsView() {
         <button class="btn btn--ghost btn--sm" id="s-tpl-reset">Reset to the originals</button>
       </div>
       <p class="small muted">${s.aiEnabled
-    ? 'Used only if the Claude key stops working, so applications never come to a halt.'
+    ? 'Used automatically whenever every available AI service fails, so preparing an application never comes to a halt.'
     : 'These are what you are sending now. Anything in double braces is filled in automatically — {{title}}, {{company}}, {{credentials}}, {{signature}}, {{days}}.'}</p>
       <div class="grid-3" style="margin-top:var(--s4)">
         <label class="field"><span>Application email</span>
@@ -1712,7 +1735,7 @@ VIEWS.settings = async function settingsView() {
   };
   const num = (id) => Number($(id).value);
 
-  $('#s-model').addEventListener('change', async (e) => {
+  $('#s-model')?.addEventListener('change', async (e) => {
     try {
       await call(window.api.ai.setModel, { model: e.target.value });
       toast('Model changed.');
@@ -1720,8 +1743,7 @@ VIEWS.settings = async function settingsView() {
     } catch (err) { oops(err); }
   });
 
-  /* The provider picker. Changing it switches immediately when a key for that
-     service is already stored, and otherwise just waits for one to be typed. */
+  /* The provider picker chooses which key is being managed. */
   (async () => {
     let list;
     try { list = await call(window.api.ai.providers, {}); } catch { return; }
@@ -1740,6 +1762,8 @@ VIEWS.settings = async function settingsView() {
       $('#s-claude').placeholder = p.hasKey
         ? '•••••••••••••••• (already saved)'
         : `${p.id === 'openrouter' ? 'sk-or-…' : p.id === 'anthropic' ? 'sk-ant-…' : 'Paste your key…'} — leave empty to keep using templates`;
+      $('#s-claude-test').disabled = !p.hasKey;
+      if ($('#s-claude-clear')) $('#s-claude-clear').hidden = !p.hasKey;
     };
     paint(list.current);
 
@@ -1751,11 +1775,7 @@ VIEWS.settings = async function settingsView() {
         toast(`Paste a ${p.label} key and press Check and save.`, 'warn', 7000);
         return;
       }
-      try {
-        await call(window.api.ai.setProvider, { provider: id });
-        toast(`Now using ${p.label}.`);
-        go('settings');
-      } catch (err) { oops(err); }
+      toast(`${p.label} is available in the automatic fallback chain.`);
     });
   })();
   $('#s-budget').addEventListener('change', async (e) => {
@@ -1787,7 +1807,10 @@ VIEWS.settings = async function settingsView() {
   $('#s-claude-test').addEventListener('click', async (e) => {
     e.currentTarget.disabled = true;
     e.currentTarget.innerHTML = '<span class="spin"></span> Checking…';
-    try { await call(window.api.settings.testClaude, {}); toast('The key works.'); }
+    try {
+      await call(window.api.settings.testClaude, { provider: $('#s-provider')?.value || undefined });
+      toast('The key works.');
+    }
     catch (err) { oops(err); }
     e.currentTarget.disabled = false;
     e.currentTarget.textContent = 'Check it works';
@@ -1904,10 +1927,10 @@ VIEWS.settings = async function settingsView() {
 
   $('#s-claude-clear')?.addEventListener('click', async () => {
     // eslint-disable-next-line no-alert
-    if (!window.confirm('Remove the key? The app carries on with template letters.')) return;
+    if (!window.confirm('Remove this key from the automatic fallback chain?')) return;
     try {
       await call(window.api.settings.setSecret, { key: CURRENT_SECRET(), value: '' });
-      toast('Key removed. Applications will use the templates.');
+      toast('Key removed. The remaining providers and local templates still work.');
       go('settings');
     } catch (err) { oops(err); }
   });

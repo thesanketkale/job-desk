@@ -96,6 +96,8 @@ CREATE TABLE IF NOT EXISTS applications (
   match_score INTEGER NOT NULL DEFAULT 0,
   match_notes TEXT NOT NULL DEFAULT '[]',
   mode TEXT NOT NULL DEFAULT 'template',   -- 'ai' if a key rewrote it, else 'template'
+  automation_log TEXT NOT NULL DEFAULT '[]',
+  resume_archived_at TEXT,
   notes TEXT NOT NULL DEFAULT '',
   attempts INTEGER NOT NULL DEFAULT 0,
   error TEXT,
@@ -146,10 +148,11 @@ function init(userDataDir) {
     root: userDataDir,
     dbFile: path.join(userDataDir, 'jobdesk.sqlite'),
     resumes: path.join(userDataDir, 'resumes'),
+    submittedResumes: path.join(userDataDir, 'resumes', 'submitted'),
     logs: path.join(userDataDir, 'logs'),
     backups: path.join(userDataDir, 'backups'),
   };
-  for (const d of [paths.root, paths.resumes, paths.logs, paths.backups]) {
+  for (const d of [paths.root, paths.resumes, paths.submittedResumes, paths.logs, paths.backups]) {
     fs.mkdirSync(d, { recursive: true });
   }
   db = new DatabaseSync(paths.dbFile);
@@ -163,6 +166,12 @@ function migrate() {
   const cols = db.prepare('PRAGMA table_info(applications)').all().map((c) => c.name);
   if (!cols.includes('mode')) {
     db.exec("ALTER TABLE applications ADD COLUMN mode TEXT NOT NULL DEFAULT 'template'");
+  }
+  if (!cols.includes('automation_log')) {
+    db.exec("ALTER TABLE applications ADD COLUMN automation_log TEXT NOT NULL DEFAULT '[]'");
+  }
+  if (!cols.includes('resume_archived_at')) {
+    db.exec('ALTER TABLE applications ADD COLUMN resume_archived_at TEXT');
   }
 
   // Where a keyword came from, so that rebuilding the vocabulary from an updated

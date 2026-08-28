@@ -171,6 +171,7 @@ function register(ctx) {
        ORDER BY COALESCE(a.sent_at, a.created_at) DESC LIMIT 400`, args);
     for (const r of rows) {
       try { r.match_notes = JSON.parse(r.match_notes || '[]'); } catch { r.match_notes = []; }
+      try { r.automation_log = JSON.parse(r.automation_log || '[]'); } catch { r.automation_log = []; }
       r.followups = db.all('SELECT id, seq, due_on, status, sent_at FROM followups WHERE application_id = ? ORDER BY seq', [r.id]);
     }
     const counts = {};
@@ -312,7 +313,7 @@ function register(ctx) {
     return settings.redacted();
   });
   handle('settings:testMail', () => mailer.verify());
-  handle('settings:testClaude', () => ai.ping());
+  handle('settings:testClaude', ({ provider } = {}) => ai.ping({ provider: provider || budget.providerId() }));
 
   /** Everything the interface needs to draw the provider picker. */
   handle('ai:providers', () => ({
@@ -321,7 +322,7 @@ function register(ctx) {
       // hasSecret, not getSecret: this decides "(key saved)" in the picker and
       // whether switching providers demands a key first — same reasoning as
       // settings.js#redacted, a baked key has no row to warn her is missing.
-      hasKey: settings.hasSecret(providers.get(p.id).secret),
+      hasKey: !!ai.storedKey(p.id),
       // budget.modelsFor() is the one place that merges the provider's own live
       // catalogue into the hard-coded table. This used to keep a second copy of
       // that logic, and the two disagreed: the copy priced an unlisted model at
@@ -343,9 +344,6 @@ function register(ctx) {
     const result = await ai.validateKey(key, id);
 
     settings.setSecret(providers.get(id).secret, String(key).trim());
-    settings.set('ai_provider', id);
-    // A model chosen for the old provider means nothing to the new one.
-    if (wanted && wanted !== budget.providerId()) settings.set('ai_model', '');
 
     // Ask the provider what it actually offers, so the picker is never stale.
     const live = await ai.listModels(id, String(key).trim());
@@ -355,7 +353,7 @@ function register(ctx) {
     return { ...result, models: live };
   });
 
-  /** Switching provider without retyping a key that is already stored. */
+  /** Preserves the legacy provider setting API for existing renderer versions. */
   handle('ai:setProvider', ({ provider: wanted, model }) => {
     if (!providers.PROVIDERS[wanted]) throw new Error('Unknown provider.');
     settings.set('ai_provider', wanted);
@@ -483,9 +481,10 @@ function register(ctx) {
   /* --------------------------------------------- the apply browser ----- */
 
   handle('browser:open', async ({ applicationId }) => {
-    const a = applier.get(applicationId);
+    let a = applier.get(applicationId);
     if (!a) throw new Error('Application not found.');
     if (!a.job?.apply_url) throw new Error('This role has no application page to open.');
+    a = applier.archiveForSubmission(applicationId).application;
     const cv = masterCv.master();
     const [firstName, ...rest] = String(cv.name).split(' ');
     // The CV as actually tailored for this role, so the AI pass in
@@ -497,6 +496,7 @@ function register(ctx) {
     applyBrowser.open({
       applicationId,
       matchScore: a.match_score,
+      resumeMode: a.mode,
       pdfPath: a.files.pdf,
       docxPath: a.files.docx,
       job: a.job,
@@ -531,7 +531,13 @@ function register(ctx) {
     }, getMainWindow());
     return true;
   });
-  handle('browser:fill', () => applyBrowser.fillForm());
+  handle('browser:fill', async () => {
+    const result = await applyBrowser.fillForm();
+    if (result?.provenance && result.applicationId) {
+      applier.appendAutomation(result.applicationId, result.provenance);
+    }
+    return result;
+  });
   handle('browser:attach', ({ which }) => applyBrowser.attachResume(which));
   handle('browser:reveal', ({ which }) => applyBrowser.revealResume(which));
   handle('browser:nav', ({ action }) => applyBrowser.nav(action));

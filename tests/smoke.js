@@ -144,6 +144,12 @@ const bare = templates.draftApplication({ name: 'A B', headline: 'Counsellor',
   competencies: { Specialisations: ['Anxiety', 'IVF Emotional Support'] } }, { title: 'T', company: 'C' });
 ok('it copes with a CV that has no pitch line', bare.email_body.includes('Anxiety'));
 ok('it does not mangle acronyms', bare.email_body.includes('IVF'));
+const unavailableDraft = templates.draftApplication(cvForTemplate,
+  { title: 'T', company: 'C' }, { aiUnavailable: true, reason: 'all providers failed' });
+ok('an AI outage explicitly records that the original CV was used',
+  unavailableDraft.provenance.kind === 'template'
+    && unavailableDraft.provenance.actions.includes('original_cv')
+    && unavailableDraft.match_notes.some((n) => /AI services were unavailable/.test(n)));
 
 /* -------------------------------------------------------------- budget */
 group('The spending guard');
@@ -239,8 +245,8 @@ group('The provider table itself');
   for (const id of providers.ids()) {
     const p = providers.get(id);
     ok(`${id}: its default model is one it lists`, !!p.models[p.defaultModel], p.defaultModel);
-    ok(`${id}: nothing it lists is priced at zero`,
-      Object.entries(p.models).every(([, m]) => m.in > 0 && m.out > 0),
+    ok(`${id}: only explicitly free models are priced at zero`,
+      Object.entries(p.models).every(([, m]) => m.free ? m.in === 0 && m.out === 0 : m.in > 0 && m.out > 0),
       Object.entries(p.models).filter(([, m]) => !m.in || !m.out).map(([k]) => k).join(',') || 'all priced');
   }
 
@@ -286,6 +292,9 @@ group('The provider table itself');
   const tailorBody = providers.buildRequest('anthropic', { model: 'claude-sonnet-5', system: 's',
     user: 'u', maxTokens: 8000, key: 'k' }).body;
   ok('tailoring still gets to think', tailorBody.thinking === undefined);
+  ok('OpenRouter Free is explicit and cannot incur token charges',
+    providers.get('openrouter').models['openrouter/free'].free === true
+      && budget.cost({ input_tokens: 100000, output_tokens: 100000 }, 'openrouter/free', 'openrouter') === 0);
 }
 
 /* A reply cut off mid-JSON almost always fails to parse anyway — the point of
@@ -1014,6 +1023,63 @@ group('Making the CV files');
   ok('a Word file is produced', fs.existsSync(docxPath) && fs.statSync(docxPath).size > 5000);
   ok('it is a real docx', fs.readFileSync(docxPath).subarray(0, 2).toString() === 'PK');
 
+  group('Archiving the exact submitted CV');
+  const sourcePdf = path.join(db.paths.resumes, 'archive-source.pdf');
+  const sourceDocx = path.join(db.paths.resumes, 'archive-source.docx');
+  fs.copyFileSync(pdfPath, sourcePdf);
+  fs.copyFileSync(docxPath, sourceDocx);
+  const archiveJobId = db.insert('jobs', {
+    fingerprint: 'archive-test-job', title: 'Archive Test Role', company: 'Archive Test Company',
+  });
+  const archiveAppId = db.insert('applications', {
+    job_id: archiveJobId,
+    status: 'draft',
+    resume_pdf: path.basename(sourcePdf),
+    resume_docx: path.basename(sourceDocx),
+  });
+  const applierForArchive = require('../src/main/applier');
+  const archived = applierForArchive.archiveForSubmission(archiveAppId);
+  ok('submission makes an immutable PDF copy',
+    archived.application.resume_pdf.startsWith(`submitted${path.sep}`)
+      && fs.existsSync(archived.pdf), archived.application.resume_pdf);
+  ok('submission makes an immutable Word copy',
+    archived.application.resume_docx.startsWith(`submitted${path.sep}`)
+      && fs.existsSync(archived.docx), archived.application.resume_docx);
+  ok('the application records when its CV was archived', !!archived.application.resume_archived_at);
+  ok('the archived PDF is byte-for-byte the prepared PDF',
+    fs.readFileSync(archived.pdf).equals(fs.readFileSync(sourcePdf)));
+  applierForArchive.appendAutomation(archiveAppId, {
+    kind: 'local', actions: ['form_autofill'], detail: 'Saved details were used.',
+  });
+  ok('preparation provenance remains attached to the application',
+    applierForArchive.get(archiveAppId).automation_log.some((e) => e.actions.includes('form_autofill')));
+
+  group('Preparing an application during a complete AI outage');
+  masterMod.saveMaster(master);
+  const outageJobId = db.insert('jobs', {
+    fingerprint: 'outage-fallback-job',
+    title: 'Outage Fallback Role',
+    company: 'Fallback Company',
+    description_text: 'A role that should still be prepared when every AI service is unavailable.',
+    apply_email: 'jobs@fallback.test',
+    score: 72,
+  });
+  const realTailor = claude.tailor;
+  settings.setSecret('gemini_api_key', 'gemini-test-key-value');
+  claude.tailor = async () => { throw new Error('all configured AI services failed'); };
+  let outageApplication;
+  try {
+    outageApplication = await applierForArchive.prepare(outageJobId);
+  } finally {
+    claude.tailor = realTailor;
+    settings.setSecret('gemini_api_key', '');
+  }
+  ok('an AI outage still produces a ready application',
+    outageApplication.mode === 'template' && fs.existsSync(outageApplication.files.pdf));
+  ok('the outage application explicitly records the original CV and local templates',
+    outageApplication.automation_log.some((e) => e.kind === 'template'
+      && e.actions.includes('original_cv') && /All available AI services failed/.test(e.detail)));
+
   /* The Word file the app just wrote is a real .docx, so reading it back proves
      the importer against genuine Word markup rather than a hand-made sample. */
   group('Reading back a real Word file');
@@ -1124,6 +1190,33 @@ group('Making the CV files');
     settings.set('max_sends_per_day', 12);
   }
 
+  group('Sending the exact application PDF');
+  const mailerForAttachment = require('../src/main/mailer');
+  const realMailerSend = mailerForAttachment.send;
+  let sentPayload = null;
+  mailerForAttachment.send = async (payload) => {
+    sentPayload = payload;
+    return { ok: true, messageId: 'test-message' };
+  };
+  settings.set('company_cooldown_days', 0);
+  applierForArchive.save(outageApplication.id, {
+    to_email: 'jobs@fallback.test',
+    subject: outageApplication.subject,
+    body_text: outageApplication.body_text.replace(templates.PLACEHOLDER,
+      'I am particularly interested in this role and its stated responsibilities.'),
+  });
+  try {
+    await applierForArchive.send(outageApplication.id);
+  } finally {
+    mailerForAttachment.send = realMailerSend;
+    settings.set('company_cooldown_days', 30);
+  }
+  ok('email applications attach only the archived PDF',
+    sentPayload?.attachments?.length === 1
+      && sentPayload.attachments[0].path.includes(`${path.sep}submitted${path.sep}`)
+      && sentPayload.attachments[0].filename.endsWith('.pdf'),
+    JSON.stringify(sentPayload?.attachments || []));
+
   /* ------------------------------------------------ checking an API key ---- */
   group('Checking an API key before saving it');
   // Each service has its own key shape, and the wrong one is caught locally —
@@ -1170,6 +1263,94 @@ group('Making the CV files');
     if (c.good2) ok(`${c.provider} lets a differently-shaped real key past it too`,
       !shapeCheck(c.good2), shapeCheck(c.good2));
   }
+
+  group('Free-first AI failover');
+  settings.setSecret('gemini_api_key', 'gemini-test-key-value');
+  settings.setSecret('openrouter_api_key', `sk-or-v1-${'x'.repeat(40)}`);
+  settings.setSecret('anthropic_api_key', `sk-ant-${'x'.repeat(40)}`);
+  settings.set('budget_usd_monthly', 0);
+
+  const plan = claude.buildAttemptPlan();
+  ok('the chain starts with the three direct Gemini models in order',
+    plan.slice(0, 3).map((a) => a.model).join(',')
+      === 'gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash',
+    plan.map((a) => a.model).join(','));
+  ok('OpenRouter Free follows Gemini and Claude is last',
+    plan[3].id === 'openrouter' && plan[3].model === 'openrouter/free'
+      && plan[4].id === 'anthropic',
+    JSON.stringify(plan.map(({ id, model }) => ({ id, model }))));
+  ok('no paid OpenRouter model is present in the automatic chain',
+    !plan.some((a) => a.id === 'openrouter' && a.model !== 'openrouter/free'));
+  ok('free routes are never blocked by the paid fallback budget',
+    plan.slice(0, 4).every((a) => a.free) && plan[4].free === false);
+
+  const attemptedModels = [];
+  const geminiFailover = await claude.call('SYS', 'USER', 100, {
+    deadlineMs: 30000,
+    sleep: async () => {},
+    accept: () => true,
+    transport: async (_url, body) => {
+      attemptedModels.push(body.model);
+      if (body.model === 'gemini-3.7-flash') {
+        return { ok: false, status: 503, retryAfter: '',
+          data: { error: { message: 'high demand' } } };
+      }
+      return { ok: true, status: 200, retryAfter: '',
+        data: { model: body.model, choices: [{ message: { content: '{"ok":true}' } }] } };
+    },
+  });
+  ok('a busy Gemini 3.7 falls through to Gemini 3.6',
+    geminiFailover.model === 'gemini-3.6-flash'
+      && attemptedModels.join(',') === 'gemini-3.7-flash,gemini-3.7-flash,gemini-3.6-flash',
+    attemptedModels.join(','));
+
+  const providerAttempts = [];
+  const claudeFailover = await claude.call('SYS', 'USER', 100, {
+    deadlineMs: 30000,
+    sleep: async () => {},
+    accept: () => true,
+    transport: async (url, body) => {
+      const id = url.includes('openrouter') ? 'openrouter'
+        : url.includes('anthropic') ? 'anthropic' : 'gemini';
+      providerAttempts.push(`${id}:${body.model}`);
+      if (id !== 'anthropic') {
+        return { ok: false, status: 503, retryAfter: '',
+          data: { error: { message: 'temporarily unavailable' } } };
+      }
+      return { ok: true, status: 200, retryAfter: '',
+        data: { model: body.model, content: [{ type: 'text', text: '{"ok":true}' }] } };
+    },
+  });
+  ok('Claude is reached only after Gemini and OpenRouter Free fail',
+    claudeFailover.providerId === 'anthropic'
+      && providerAttempts.some((a) => a === 'openrouter:openrouter/free')
+      && providerAttempts.at(-1).startsWith('anthropic:'),
+    providerAttempts.join(','));
+
+  const networkAttempts = [];
+  const networkFailover = await claude.call('SYS', 'USER', 100, {
+    deadlineMs: 30000,
+    sleep: async () => {},
+    accept: () => true,
+    transport: async (url, body) => {
+      const id = url.includes('openrouter') ? 'openrouter'
+        : url.includes('anthropic') ? 'anthropic' : 'gemini';
+      networkAttempts.push(`${id}:${body.model}`);
+      if (id === 'gemini') throw new Error('network socket failed');
+      return { ok: true, status: 200, retryAfter: '',
+        data: { model: body.model, choices: [{ message: { content: '{"ok":true}' } }] } };
+    },
+  });
+  ok('a provider-level network failure skips its sibling models and reaches the next service',
+    networkFailover.providerId === 'openrouter'
+      && networkAttempts.join(',') === 'gemini:gemini-3.7-flash,openrouter:openrouter/free',
+    networkAttempts.join(','));
+
+  settings.setSecret('gemini_api_key', '');
+  settings.setSecret('openrouter_api_key', '');
+  settings.setSecret('anthropic_api_key', '');
+  settings.set('budget_usd_monthly', 10);
+  settings.set('spend_by_month', {});
 
   /* --------------------------------------------- one shape, many services -- */
   group('Talking to more than one service');

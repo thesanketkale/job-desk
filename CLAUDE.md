@@ -8,7 +8,7 @@ Srishti Sharma, a counselling psychologist. Electron on Windows, no server.
 ```bash
 npm install
 npm start            # npm run dev opens devtools
-npm test             # 344 checks, no Electron and no network needed
+npm test             # 361 checks, no Electron and no network needed
 ```
 
 `npm test` needs Node 22.5+ on the system PATH (`node:sqlite` isn't available
@@ -41,9 +41,11 @@ regression, not a feature.
 cooldown, valid recipient, already-sent, unfilled placeholder. Anything that can
 send must go through `applier.send()`.
 
-**Spending is checked before the request, not after.** `budget.checkBeforeCall()`
-runs first in `ai.js#call`. Prices live per provider in `providers.js` and go
-stale — verify against that provider's own pricing page before trusting them.
+**Spending is checked before a paid request, not after.** The automatic Gemini
+and `openrouter/free` attempts do not consume the app's paid ledger.
+`budget.checkBeforeCall(model, providerId)` runs before the Claude fallback.
+Prices live per provider in `providers.js` and go stale — verify against that
+provider's own pricing page before trusting them.
 
 **One shape above `providers.js`.** Anthropic has its own wire format; Google,
 OpenRouter and OpenAI all speak OpenAI-compatible `/chat/completions`, so there
@@ -52,22 +54,25 @@ sees `{text, usage}` with Anthropic's token names. `enforceTruth` and
 `enforceResumeTruth` run on the reply whatever produced it — a cheaper provider is
 never a weaker guarantee.
 
-**Gemini is the default because its free tier is real.** `budget.providerId()`
-falls back to `anthropic` when an install already has a Claude key, so nobody's
-provider changes underneath them. Model ids are scoped to the provider and the
-live list is fetched on key validation, because the table in `providers.js` goes
-stale — same as the prices. Confirmed live: `gemini-2.5-flash`, listed in
-Google's own model catalogue as though it worked, 404s with "no longer
-available to new users" — the catalogue is not proof a model actually answers.
+**Application inference uses a fixed free-first chain.** `ai.buildAttemptPlan()`
+reads all three stored-or-baked keys on every call and orders attempts as Gemini
+3.7 Flash, 3.6 Flash, 3.5 Flash, `openrouter/free`, then Anthropic's default
+Claude model. Missing keys omit their provider. Retryable HTTP failures get one
+bounded retry; unusable output moves to the next model; authentication or
+provider-level network failures skip the provider. If all attempts fail,
+`applier.prepare()` must return the original CV and local templates rather than
+throwing. The legacy `budget.providerId()` setting remains for key-management
+compatibility and must not override this application chain.
 
 **Gemini's 3.x models spend hidden "thinking" tokens before they answer, and
 those tokens bill at the output rate.** Confirmed live: a trivial prompt used
 `total_tokens: 99` against `completion_tokens: 1` — thinking can be 70-85% of
 the real bill on a complex one. `providers.js#parseResponse` prices on
 `total_tokens - prompt_tokens`, not `completion_tokens` alone, or Gemini spend
-would be silently undercounted. `ping()` passes `reasoning_effort: "minimal"`
-(the `cheapReasoningField`) so a tiny key-check call does not spend its entire
-token budget on invisible reasoning and return nothing.
+would be silently undercounted. `ping()` passes the provider's
+`cheapReasoningPatch` (`reasoning_effort: "low"` for Gemini) so a tiny key-check
+call does not spend its entire token budget on invisible reasoning and return
+nothing.
 
 **`http.js#request()` reads the response body on a failing status too.** It
 used to discard it, so every non-2xx reply reached `postJson`'s caller as a
@@ -163,11 +168,19 @@ audience does not have. A working adapter for a source whose results are
 mostly roles she cannot legally apply to is board-clutter with good code
 underneath, not a partially-finished feature worth completing.
 
-**The app works with no API key.** `templates.js` is the free path; `applier.prepare()`
-branches on `ai.available()` and both branches return the same shape. Any new
-feature that only works with a key needs a template fallback or a clear reason.
-Onboarding asks for a key *after* setup is complete and Skip is a first-class
-button, because the app is genuinely finished at that point.
+**The app works with no API key and during a complete AI outage.** `templates.js`
+is the local path; `applier.prepare()` uses it both when no key exists and when
+the entire configured AI chain throws. Both paths return the same shape and add
+an explicit provenance entry. Any new AI feature needs a local fallback or a
+clear reason. Onboarding asks for a key *after* setup is complete and Skip is a
+first-class button, because the app is genuinely finished at that point.
+
+**The exact submitted PDF is permanent application data.** `applier` copies the
+prepared PDF and Word backup into `resumes/submitted` before email attachment or
+opening the company form, updates the application to those archived paths, and
+never overwrites the copy. Email sends the PDF only. `automation_log` records
+whether AI, saved form details, or local templates performed each action, and
+Applications must keep the archived PDF openable after every terminal status.
 
 **A key is checked before it is stored.** `ai.validateKey()` tests the shape
 against that provider's format locally, then spends a fraction of a paisa proving
@@ -209,12 +222,14 @@ test and a CI step guarding it.
 
 **Service API keys baked into the build are deliberate — this is not the same
 promise as no personal data.** This install is for one household, so every
-job-source key and the AI key are ours, not something Srishti is expected to
-go and get; `scripts/write-baked-keys.mjs` writes them into gitignored
+job-source key and the optional AI keys are ours, not something Srishti is
+expected to go and get; `scripts/write-baked-keys.mjs` writes them into gitignored
 `src/main/baked-keys.js` from GitHub Actions secrets right before packaging,
 and `settings.js#getSecret` falls back to it when nothing is saved in the
 database. A key she pastes into Settings herself always wins — the row is
-checked first. `check-build-privacy.mjs` does not and should not flag this:
+checked first. Missing baked values are omitted; `ai.buildAttemptPlan()` skips
+empty providers, and a validated Settings key joins the chain on the next call
+without a restart. `check-build-privacy.mjs` does not and should not flag this:
 it greps for CV values and the `KNOWN_SENSITIVE` list, not credentials: a
 service key is not personal data, and it is meant to ship. What must still
 never happen is the reverse — a real key typed directly into source instead
@@ -272,10 +287,10 @@ what arms it; nothing in this codebase calls it directly.
 | `src/main/sources.js` | One adapter per job source. All published APIs; nothing scrapes. |
 | `src/main/normalize.js` | Feed data → one comparable shape. Work mode, place, entities, fingerprints. |
 | `src/main/score.js` | Keyword ranking. Title matches count triple. |
-| `src/main/ai.js` | Tailoring and follow-up drafting, plus the truth guards. Provider-agnostic. |
+| `src/main/ai.js` | Free-first retries and provider failover, tailoring and follow-up drafting, plus the truth guards. |
 | `src/main/providers.js` | Which service, and the two wire formats. A new provider is a table entry. |
 | `src/main/templates.js` | The no-key path. |
-| `src/main/applier.js` | Prepare, send, rails, status. |
+| `src/main/applier.js` | Prepare, local outage fallback, exact-CV archive, send, rails, status and provenance. |
 | `src/main/apply-browser.js` | The in-app browser. Uses CDP `DOM.setFileInputFiles` to attach the CV. |
 | `src/main/budget.js` | Prices, monthly ledger, the hard cap. |
 | `src/main/settings.js` | Prefs, `safeStorage`-encrypted secrets, the baked-key fallback, source activation. |

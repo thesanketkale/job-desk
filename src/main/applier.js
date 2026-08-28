@@ -11,7 +11,7 @@ const docx = require('./resume-docx');
 const { master, isPlaceholder } = require('./master');
 const followups = require('./followups');
 
-const SENT_STATES = ['sent', 'submitted', 'replied', 'interview', 'offer'];
+const SENT_STATES = ['sent', 'submitted', 'replied', 'interview', 'rejected', 'offer', 'withdrawn'];
 const slug = (s, max = 46) => String(s).replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, max);
 const now = () => new Date().toISOString().slice(0, 19).replace('T', ' ');
 
@@ -20,6 +20,7 @@ function get(id) {
   if (!a) return null;
   a.job = db.get('SELECT * FROM jobs WHERE id = ?', [a.job_id]) || {};
   try { a.match_notes = JSON.parse(a.match_notes || '[]'); } catch { a.match_notes = []; }
+  try { a.automation_log = JSON.parse(a.automation_log || '[]'); } catch { a.automation_log = []; }
   a.followups = db.all('SELECT * FROM followups WHERE application_id = ? ORDER BY seq', [id]);
   a.files = {
     pdf: a.resume_pdf ? path.join(db.paths.resumes, a.resume_pdf) : null,
@@ -51,12 +52,19 @@ async function prepare(jobId, { force = false } = {}) {
       + 'everything else is ready.');
   }
   const cv = master();
-  // With a key, the CV is rewritten for this role. Without one, the app still
-  // works: the master CV goes out with a template letter she can edit.
-  const useAi = ai.available();
-  const tailored = useAi
-    ? { mode: 'ai', ...await ai.tailor(cv, job) }
-    : templates.draftApplication(cv, job);
+  let tailored;
+  if (ai.available()) {
+    try {
+      tailored = { mode: 'ai', ...await ai.tailor(cv, job) };
+    } catch (err) {
+      tailored = templates.draftApplication(cv, job, {
+        aiUnavailable: true,
+        reason: String(err.message || err).slice(0, 300),
+      });
+    }
+  } else {
+    tailored = templates.draftApplication(cv, job);
+  }
 
   const stamp = now().replace(/[- :]/g, '').slice(0, 15);
   const base = `${slug(cv.name, 30)}_${slug(`${job.company || 'company'}_${job.title}`)}_${stamp}`;
@@ -81,6 +89,8 @@ async function prepare(jobId, { force = false } = {}) {
     match_score: tailored.match_score,
     match_notes: JSON.stringify(tailored.match_notes),
     mode: tailored.mode,
+    automation_log: JSON.stringify([{ ...tailored.provenance, at: now() }]),
+    resume_archived_at: null,
     error: null,
     updated_at: now(),
   };
@@ -94,13 +104,63 @@ async function prepare(jobId, { force = false } = {}) {
   }
   db.update('jobs', { status: 'applied' }, 'id = ?', [jobId]);
 
-  db.logActivity(useAi ? 'tailored' : 'drafted',
-    `${job.company} — ${job.title}${useAi ? ` (match ${tailored.match_score})` : ' (template)'}`,
+  const usedAi = tailored.mode === 'ai';
+  db.logActivity(usedAi ? 'tailored' : 'drafted',
+    `${job.company} - ${job.title}${usedAi ? ` (match ${tailored.match_score})` : ' (original CV and templates)'}`,
     { jobId, applicationId: id });
 
   const out = get(id);
   out.spend = tailored.spend || null;      // so the interface can warn at 80%
   return out;
+}
+
+/**
+ * Adds a preparation event to one application's permanent history.
+ * @param id Application database identifier.
+ * @param entry Provider, model, and actions performed.
+ * @return Updated application object.
+ */
+function appendAutomation(id, entry) {
+  const a = get(id);
+  if (!a) throw new Error('Application not found.');
+  const log = Array.isArray(a.automation_log) ? a.automation_log : [];
+  log.push({ ...entry, at: entry.at || now() });
+  db.update('applications', { automation_log: JSON.stringify(log), updated_at: now() }, 'id = ?', [id]);
+  return get(id);
+}
+
+function archiveFile(id, relativePath) {
+  if (!relativePath) return null;
+  const source = path.resolve(db.paths.resumes, relativePath);
+  const root = `${path.resolve(db.paths.resumes)}${path.sep}`;
+  if (!source.startsWith(root) || !fs.existsSync(source)) return null;
+  if (source.startsWith(`${path.resolve(db.paths.submittedResumes)}${path.sep}`)) {
+    return { absolute: source, relative: path.relative(db.paths.resumes, source) };
+  }
+  const filename = `${id}_${path.basename(relativePath)}`;
+  const target = path.join(db.paths.submittedResumes, filename);
+  if (!fs.existsSync(target)) fs.copyFileSync(source, target, fs.constants.COPYFILE_EXCL);
+  return { absolute: target, relative: path.relative(db.paths.resumes, target) };
+}
+
+/**
+ * Creates immutable copies of the exact CV files used for submission.
+ * @param id Application database identifier.
+ * @return Archived PDF and Word paths as an Object.
+ */
+function archiveForSubmission(id) {
+  const a = get(id);
+  if (!a) throw new Error('Application not found.');
+  const pdfFile = archiveFile(id, a.resume_pdf);
+  const docxFile = archiveFile(id, a.resume_docx);
+  if (!pdfFile) throw new Error('The CV PDF is missing, so the application cannot be submitted safely.');
+  db.update('applications', {
+    resume_pdf: pdfFile.relative,
+    resume_docx: docxFile?.relative || '',
+    resume_archived_at: now(),
+    updated_at: now(),
+  }, 'id = ?', [id]);
+  return { application: get(id), pdf: pdfFile.absolute, docx: docxFile?.absolute || null };
 }
 
 function save(id, fields) {
@@ -170,7 +230,7 @@ function checkRails(a) {
 }
 
 async function send(id) {
-  const a = get(id);
+  let a = get(id);
   if (!a) throw new Error('Application not found.');
   const problems = checkRails(a);
   if (problems.length) throw new Error(problems[0]);
@@ -179,6 +239,9 @@ async function send(id) {
       + 'this role, then send.');
   }
 
+  const archived = archiveForSubmission(id);
+  a = archived.application;
+
   db.update('applications', { status: 'queued', attempts: a.attempts + 1, updated_at: now() }, 'id = ?', [id]);
 
   let cvName = 'CV';
@@ -186,9 +249,6 @@ async function send(id) {
   const attachments = [];
   if (a.files.pdf && fs.existsSync(a.files.pdf)) {
     attachments.push({ path: a.files.pdf, filename: `${cvName}_CV.pdf` });
-  }
-  if (a.files.docx && fs.existsSync(a.files.docx)) {
-    attachments.push({ path: a.files.docx, filename: `${cvName}_CV.docx` });
   }
 
   try {
@@ -216,7 +276,8 @@ async function send(id) {
 
 /** Used after she submits a company form inside the app's browser. */
 function markSubmitted(id, note = '') {
-  const a = get(id);
+  const archived = archiveForSubmission(id);
+  const a = archived.application;
   if (!a) throw new Error('Application not found.');
   db.update('applications', {
     status: 'submitted', method: 'form', sent_at: now(), error: null,
@@ -243,4 +304,5 @@ function setStatus(id, status) {
   return get(id);
 }
 
-module.exports = { prepare, save, send, get, byJob, setStatus, markSubmitted, remainingToday, checkRails, STATUSES, SENT_STATES };
+module.exports = { prepare, save, send, get, byJob, setStatus, markSubmitted, remainingToday,
+  checkRails, appendAutomation, archiveForSubmission, STATUSES, SENT_STATES };

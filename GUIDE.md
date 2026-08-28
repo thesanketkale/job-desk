@@ -98,7 +98,7 @@ this.
 
 ---
 
-## What an AI key adds
+## What AI keys add
 
 The app offers this once, right after it reads your resume, and **Skip for now**
 there costs you nothing — everything above keeps working. You can add a key later
@@ -106,13 +106,25 @@ from Settings → *AI tailoring*, or change one you have already added, and the 
 checks it against the service before saving so a mistyped key is caught
 immediately rather than on your first application.
 
-**Which service.** Three work, and you can switch at any time:
+**Which service.** The app uses a fixed free-first order. You add whichever keys
+you have; missing providers are skipped automatically:
 
 | | |
 |---|---|
-| **Google Gemini** | The default. Its free tier covers roughly 1,000 requests a day and needs no card — enough to tailor every application most people send. Get a key from aistudio.google.com. |
-| **Anthropic Claude** | Prepaid, about ₹5 an application. The strongest results. |
-| **OpenRouter** | One key, many models. Model names ending `:free` cost nothing but are rate limited hard and come and go. |
+| **Google Gemini** | Tried first as 3.7 Flash, then 3.6 Flash, then 3.5 Flash. The API has a free tier; check the billing status of the Google project that owns the key. Get one from aistudio.google.com. |
+| **OpenRouter** | Tried after Gemini through `openrouter/free`, which routes to an available free model and never selects a paid OpenRouter model. Free capacity can still be rate limited. |
+| **Anthropic Claude** | The final AI backup. It is paid, so the app checks the monthly spending limit before calling it. |
+
+A temporary busy or rate-limit response is retried. If it still fails, the app
+moves to the next model or provider. If every available AI route fails, the
+application is still prepared with the original CV and local email/form
+templates. The application record says exactly which path was used.
+
+Every key is optional. An empty or missing key is never sent to a provider; that
+provider is simply left out of the chain. You can add a key later in Settings.
+The app validates it before saving it, encrypts it for this Windows account, and
+uses it from the very next application — no restart or reinstall is needed. A
+key entered in Settings takes precedence over one included in the installer.
 
 **A subscription is not an API key.** A Gemini Pro or Claude chat subscription is
 a consumer product and does not include API access — the key comes from the
@@ -141,11 +153,11 @@ any of that, so without a key the score is only ever "these words appeared".
 
 It also writes your follow-up notes for you instead of using the template.
 
-**What it costs.** Nothing at all on Gemini's free tier, within its daily limits.
-On a paid service it is a few rupees an application, prepaid — when the credit
-runs out it simply stops. The app also has its own monthly limit, set to $10 out
-of the box, which it checks before every single request, and there is a cheaper
-model in the same settings if you want to halve it.
+**What it costs.** Gemini and OpenRouter Free are treated as the free routes.
+Actual Gemini billing still depends on the Google API project's account and
+quota configuration. Claude is paid and prepaid; the app's monthly limit is
+checked before Claude is called. Reaching that limit skips Claude and uses the
+original CV rather than blocking the application.
 
 You can add a key later, remove it at any time, and nothing else changes.
 
@@ -167,7 +179,9 @@ the left.
 Press **Tailor & apply**. You get a CV, a letter, and the email ready to read.
 Then either:
 
-- **Send it now** — goes from your address with the CV attached
+- **Review the PDF**, then **Send it now** — that exact PDF goes from your
+  address and is archived against the application. The Word file is retained as
+  an editable backup, not sent as a second attachment.
 - **Fill in the company form** — opens their page inside the app. Press *Fill in
   your details*, then *Attach the CV*. Everything it filled is outlined in green.
   **Read it, then press their Submit button yourself** — the app never submits
@@ -177,9 +191,12 @@ Nothing is ever sent without you pressing something.
 
 ## Keeping track
 
-**Applications** holds every role you have applied to, the exact CV file that
-went out, and where it stands. Change the status as you hear back. Anything you
-mark as answered stops being chased.
+**Applications** holds every role you have applied to, the exact archived PDF
+that went out, its editable Word backup, and where it stands. It also says
+whether the original or an AI-tailored CV was used; which provider and model
+answered; and whether AI edited the CV, drafted the email, or filled supported
+form questions. Change the status as you hear back. Anything you mark as
+answered stops being chased.
 
 **Follow-ups** appear on the day they are due — about a week after you apply, and
 again a fortnight later. Press *Write it for me*, read it, send it. Or snooze it,
@@ -239,6 +256,7 @@ a wrong name is caught immediately rather than silently returning nothing.
   and drag it in.
 - **Your PDF will not read.** It is almost certainly a scan. Open it, select
   everything, copy, and use *Paste the text instead*.
-- **Tailoring stops working.** Check Settings — a free tier can be rate limited
-  at busy times, and the app says so rather than failing silently. Applications
-  keep working on the template path meanwhile.
+- **One AI service is busy.** Nothing needs changing immediately. The app retries
+  temporary failures, moves through the configured fallback chain, and finally
+  prepares the original CV and templates if no AI service answers. Open the
+  application to see which route was actually used.

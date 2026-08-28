@@ -74,7 +74,7 @@ function fill(template, values) {
 }
 
 /** Mirrors what ai.tailor() returns, so the rest of the app cannot tell them apart. */
-function draftApplication(cv, job) {
+function draftApplication(cv, job, options = {}) {
   const values = {
     title: job.title || 'the advertised role',
     company: job.company || 'your organisation',
@@ -87,6 +87,9 @@ function draftApplication(cv, job) {
     'Written from a template — the CV attached is her full master CV, not a version rewritten for this role.',
     'The score beside this role comes from keyword matching, not from reading the description.',
   ];
+  if (options.aiUnavailable) {
+    notes.unshift('AI services were unavailable, so the original CV is attached without AI edits.');
+  }
   if (job.description_text && job.description_text.length > 400) {
     notes.push('Worth reading the description before sending: a template cannot tell you what it asks for.');
   }
@@ -100,6 +103,17 @@ function draftApplication(cv, job) {
     match_score: Number(job.score) || 0,
     match_notes: notes,
     spend: null,
+    provenance: {
+      kind: 'template',
+      provider: '',
+      provider_id: '',
+      model: '',
+      actions: ['original_cv', 'email_template', 'cover_letter_template'],
+      reason: options.aiUnavailable ? String(options.reason || 'AI services were unavailable.') : '',
+      detail: options.aiUnavailable
+        ? 'All available AI services failed. The original CV and local email templates were used.'
+        : 'The original CV and local email templates were used. No AI key was available.',
+    },
   };
 }
 

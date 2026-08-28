@@ -64,9 +64,16 @@ async function draft(followupId) {
   const sentAt = a.sent_at ? new Date(`${a.sent_at.replace(' ', 'T')}Z`).getTime() : Date.now();
   const daysSince = Math.max(1, Math.round((Date.now() - sentAt) / 86400000));
 
-  const out = ai.available()
-    ? await ai.followup({ job, application: a, daysSince, seq: f.seq, cv: master() })
-    : templates.draftFollowup(master(), job, daysSince);
+  let out;
+  if (ai.available()) {
+    try {
+      out = await ai.followup({ job, application: a, daysSince, seq: f.seq, cv: master() });
+    } catch {
+      out = templates.draftFollowup(master(), job, daysSince);
+    }
+  } else {
+    out = templates.draftFollowup(master(), job, daysSince);
+  }
   db.update('followups', { subject: out.subject.slice(0, 255), body_text: out.body }, 'id = ?', [followupId]);
   return db.get('SELECT * FROM followups WHERE id = ?', [followupId]);
 }

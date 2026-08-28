@@ -80,13 +80,13 @@ function model() {
 
 const UNPRICED = { in: 0, out: 0, label: 'Typed in by hand — cost not known to the app' };
 
-function priceOf(m = model()) {
-  const p = provider();
+function priceOf(m = model(), pid = providerId()) {
+  const p = providers.get(pid);
   return p.models[m] || p.models[p.defaultModel] || UNPRICED;
 }
 
-function cost(usage = {}, m = model()) {
-  const p = priceOf(m);
+function cost(usage = {}, m = model(), pid = providerId()) {
+  const p = priceOf(m, pid);
   const inTok = Number(usage.input_tokens || 0) + Number(usage.cache_read_input_tokens || 0);
   const outTok = Number(usage.output_tokens || 0);
   return (inTok / 1e6) * p.in + (outTok / 1e6) * p.out;
@@ -99,8 +99,8 @@ function cost(usage = {}, m = model()) {
 const WORST_CASE_OUTPUT_TOKENS = 16000;
 
 /** A deliberately generous estimate, used to refuse a call before making it. */
-function worstCaseCost(m = model()) {
-  const p = priceOf(m);
+function worstCaseCost(m = model(), pid = providerId()) {
+  const p = priceOf(m, pid);
   return (12000 / 1e6) * p.in + (WORST_CASE_OUTPUT_TOKENS / 1e6) * p.out;
 }
 
@@ -129,18 +129,20 @@ function status() {
     freeNote: provider().freeNote || '',
     dataNote: provider().dataNote || '',
     perApplication: Math.round(typicalCost() * 10000) / 10000,
+    paidFallbackPerApplication: Math.round(typicalCost(
+      providers.get('anthropic').defaultModel, 'anthropic') * 10000) / 10000,
     history: ledger(),
   };
 }
 
 /** What one tailored application actually costs, on the current model. */
-function typicalCost(m = model()) {
-  const p = priceOf(m);
+function typicalCost(m = model(), pid = providerId()) {
+  const p = priceOf(m, pid);
   return (8000 / 1e6) * p.in + (4000 / 1e6) * p.out;
 }
 
 /** Throws before a request is sent if it could take the month over its cap. */
-function checkBeforeCall() {
+function checkBeforeCall(m = model(), pid = providerId()) {
   const cap = Number(settings.get('budget_usd_monthly', 0));
   if (cap <= 0) return;
   const spent = spentThisMonth();
@@ -150,7 +152,7 @@ function checkBeforeCall() {
       + 'Raise it in Settings, or wait until next month — the limit resets on the 1st.',
     );
   }
-  if (spent + worstCaseCost() > cap) {
+  if (spent + worstCaseCost(m, pid) > cap) {
     throw new Error(
       `That would go past this month's $${cap.toFixed(2)} limit — about $${(cap - spent).toFixed(2)} is left, `
       + 'and one application can cost more than that. Raise the limit in Settings to carry on.',
@@ -158,9 +160,12 @@ function checkBeforeCall() {
   }
 }
 
-/** Records what a call actually cost, after the fact. */
-function record(usage, m = model(), kind = 'tailor') {
-  const spend = cost(usage, m);
+/** Records what a call actually cost, after the fact. `pid` is the provider
+ *  that actually answered - ai.js#call() can fall back to a different one
+ *  than the configured default when that one is overloaded, and pricing has
+ *  to follow whichever provider's model table the id actually belongs to. */
+function record(usage, m = model(), kind = 'tailor', pid = providerId()) {
+  const spend = cost(usage, m, pid);
   const book = ledger();
   const key = monthKey();
   book[key] = Number(book[key] || 0) + spend;
@@ -172,8 +177,6 @@ function record(usage, m = model(), kind = 'tailor') {
   settings.set('spend_by_month', book);
   const allTime = Number(settings.get('spend_usd', 0)) + spend;
   settings.set('spend_usd', Math.round(allTime * 10000) / 10000);
-  if (kind === 'tailor') settings.set('tailor_count', Number(settings.get('tailor_count', 0)) + 1);
-
   const cap = Number(settings.get('budget_usd_monthly', 0));
   const warned = settings.get('budget_warned_month', '');
   let warning = null;
@@ -182,7 +185,8 @@ function record(usage, m = model(), kind = 'tailor') {
     warning = `About $${book[key].toFixed(2)} of this month's $${cap.toFixed(2)} is used.`;
   }
 
-  db.logActivity('spend', `${kind}: $${spend.toFixed(4)} on ${m}`);
+  const via = pid !== providerId() ? ` via ${providers.get(pid).label}` : '';
+  db.logActivity('spend', `${kind}: $${spend.toFixed(4)} on ${m}${via}`);
   return { spend, monthTotal: book[key], warning };
 }
 

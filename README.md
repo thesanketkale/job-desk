@@ -32,24 +32,32 @@ job sites for.
 | **Finds** | Adzuna, Remotive, RemoteOK, Himalayas, Arbeitnow, Jooble, JSearch, Active Jobs DB, Y Combinator's board, any Greenhouse / Lever / Ashby / Workable board, any RSS or Atom feed |
 | **Ranks** | Every role scored out of 100 against keywords taken from your own CV |
 | **Writes** | Your CV as PDF and Word, a covering letter, and the email |
-| **Sends** | From your own mailbox, copied to your inbox |
+| **Sends** | The reviewed PDF from your own mailbox, copied to your inbox |
 | **Fills** | Company application forms, inside the app — and never presses Submit |
+| **Tracks** | The exact submitted PDF and whether AI, saved details, or local templates prepared each part |
 | **Chases** | Follow-ups, scheduled the moment an application goes out |
 
 All of that works with no AI key and no payment of any kind.
 
-## The AI key is optional
+## AI keys are optional
 
-Without one, each application sends your full CV with a template letter that
-leaves you one sentence to write. With one, the CV is rewritten for each role,
-the email is written from the job description, and you get an honest read on
-whether you actually qualify.
+Without a working AI service, each application uses your full original CV with a
+local template letter that leaves you one sentence to write. With AI, the CV is
+rewritten for the role, the email is written from the job description, and you
+get an honest read on whether you actually qualify.
 
-Three services work: **Google Gemini** (the default — its free tier needs no
-card), **Anthropic Claude**, and **OpenRouter**. Whichever you pick, the app
-enforces its own monthly spending cap before every single request. Note that a
-consumer chat subscription is not API access; the key comes from the provider's
-developer console instead.
+The order is automatic and free-first: **Gemini 3.7 Flash**, **Gemini 3.6
+Flash**, **Gemini 3.5 Flash**, OpenRouter's rotating **`openrouter/free`** route,
+then **Anthropic Claude** as the paid final AI backup. A busy model is retried,
+then skipped without stopping the application. If every configured service is
+unavailable, the app prepares the original CV and local templates instead.
+
+Every key is optional. Missing keys are skipped; the app never sends an empty
+credential. A key added later in Settings is checked, encrypted on that computer,
+and joins the fallback chain on the next request without a reinstall. Claude is
+protected by the app's monthly spending cap; the free routes do not consume that
+cap. A consumer chat subscription is not API access — API keys come from each
+provider's developer console.
 
 ## Why it is built this way
 
@@ -75,8 +83,15 @@ recalled.
 **Nothing scrapes.** Every source is a published API or a company's own career
 feed, so it will not break on a redesign or get your IP blocked.
 
-**Spending cannot run away.** The monthly cap is checked *before* each request,
-rather than discovered afterwards on a bill.
+**Spending cannot run away.** Free routes are tried first. The monthly cap is
+checked *before* the paid Claude fallback, rather than discovered afterwards on
+a bill.
+
+**The submitted CV is auditable.** The exact PDF is shown before sending, copied
+to an immutable per-application archive, and available from Applications later.
+The same screen records which provider and model edited the CV, drafted the
+email, or answered form fields — or plainly says that the original CV and local
+templates were used.
 
 ## Where things live
 
@@ -88,15 +103,15 @@ rather than discovered afterwards on a bill.
 | `tests/` | `npm test`, which needs neither Electron nor the network |
 
 Your data is written to `%APPDATA%\Job Desk\` — the database, the master CV,
-every generated CV, and rolling backups. A portable build keeps the same folder
-beside the `.exe` instead.
+every generated CV, immutable submitted-CV copies, and rolling backups. A
+portable build keeps the same folder beside the `.exe` instead.
 
 ## From source
 
 ```bash
 npm install
 npm start          # npm run dev opens devtools
-npm test           # 344 checks
+npm test           # 361 checks
 ```
 
 `npm test` runs on your system's own Node and needs **22.5 or newer** — that is

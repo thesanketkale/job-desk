@@ -143,6 +143,7 @@ const PROVIDERS = {
       'google/gemini-3.5-flash-lite': { in: 0.30, out: 2.50, label: 'Gemini 3.5 Flash-Lite — fastest' },
       'anthropic/claude-sonnet-5':    { in: 2, out: 10, label: 'Claude Sonnet 5 — best at strict JSON, dearest here' },
       'openai/gpt-oss-120b':          { in: 0.037, out: 0.17, label: 'GPT-OSS 120B — open weights, near enough free' },
+      'openrouter/free':              { in: 0, out: 0, free: true, label: 'OpenRouter Free - rotating free model backup' },
     },
   },
 };
@@ -177,7 +178,7 @@ const catalogue = () => ids().map(describe);
  * the system prompt goes, how the key is presented, and what the reply is
  * called.
  */
-function buildRequest(providerId, { model, system, user, maxTokens, key, cheap = false }) {
+function buildRequest(providerId, { model, system, user, maxTokens, key, cheap = false, json = false }) {
   const p = get(providerId);
 
   if (p.wire === 'anthropic') {
@@ -210,6 +211,7 @@ function buildRequest(providerId, { model, system, user, maxTokens, key, cheap =
       { role: 'user', content: user },
     ],
   };
+  if (json) body.response_format = { type: 'json_object' };
   // Confirmed live on Gemini: reasoning models spend the entire token budget on
   // invisible "thinking" before answering, which starves a small max_tokens call
   // (like a key check) of any room for the actual answer. Turned down only for
@@ -244,7 +246,7 @@ function parseResponse(providerId, raw) {
     // text that came back may look like valid JSON right up to where it stops
     // and still fail to parse. Passed through so the caller can say that,
     // rather than the generic "could not read the reply" it looked like before.
-    return { text, usage: res.usage || {}, stopReason: res.stop_reason };
+    return { text, usage: res.usage || {}, model: res.model || '', stopReason: res.stop_reason };
   }
 
   const choice = (res.choices || [])[0];
@@ -268,7 +270,12 @@ function parseResponse(providerId, raw) {
 
   // OpenAI-compatible finish_reason: 'length' is this wire's equivalent of
   // Anthropic's 'max_tokens' — the reply was cut off, not finished.
-  return { text, usage: { input_tokens: promptTok, output_tokens: outputTok }, stopReason: choice.finish_reason };
+  return {
+    text,
+    usage: { input_tokens: promptTok, output_tokens: outputTok },
+    model: res.model || '',
+    stopReason: choice.finish_reason,
+  };
 }
 
 /** Pulls the live model list, so a stale table here is never the only source. */

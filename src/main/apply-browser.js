@@ -115,6 +115,8 @@ function publicContext() {
     coverLetter: context.profile.coverLetter,
     hasPdf: !!(context.pdfPath && fs.existsSync(context.pdfPath)),
     matchScore: context.matchScore ?? null,
+    resumeMode: context.resumeMode || 'template',
+    resumeLabel: context.resumeMode === 'ai' ? 'AI-tailored CV' : 'original CV',
   };
 }
 
@@ -134,8 +136,17 @@ function publicContext() {
 async function fillForm() {
   if (!view || !context) throw new Error('No application form is open.');
   const result = await view.webContents.executeJavaScript(buildScript(context.profile), true);
+  result.applicationId = context.applicationId;
   result.aiFilled = 0;
   result.aiTried = false;
+  result.provenance = {
+    kind: 'local',
+    provider: '',
+    provider_id: '',
+    model: '',
+    actions: ['form_autofill'],
+    detail: 'Form fields were filled from saved details. No AI was used.',
+  };
 
   const ai = require('./ai');
   if (!ai.available()) return result;
@@ -144,14 +155,24 @@ async function fillForm() {
   try {
     const fields = await view.webContents.executeJavaScript(buildCollectQuestionsScript(), true);
     if (!fields?.length) return result;
-    const answers = await ai.answerFormFields({
+    const answered = await ai.answerFormFields({
       fields,
       cv: context.cv || context.profile,
       job: context.job,
     });
-    if (!answers.length) return result;
-    const applied = await view.webContents.executeJavaScript(buildApplyAnswersScript(answers), true);
+    if (!answered.answers.length) {
+      result.provenance = {
+        ...answered.provenance,
+        detail: 'AI reviewed the unanswered form questions and did not fill any unsupported answer.',
+      };
+      return result;
+    }
+    const applied = await view.webContents.executeJavaScript(buildApplyAnswersScript(answered.answers), true);
     result.aiFilled = applied?.filled || 0;
+    result.provenance = {
+      ...answered.provenance,
+      detail: `AI reviewed the form and filled ${result.aiFilled} supported field${result.aiFilled === 1 ? '' : 's'}.`,
+    };
   } catch (err) {
     // The rule-based fill above already succeeded; this pass is a bonus.
     result.aiError = String(err.message || err).slice(0, 200);
@@ -167,7 +188,7 @@ async function fillForm() {
 async function attachResume(which = 'pdf') {
   if (!view || !context) throw new Error('No application form is open.');
   const file = which === 'docx' ? context.docxPath : context.pdfPath;
-  if (!file || !fs.existsSync(file)) throw new Error('The tailored CV file is missing. Regenerate it from the board.');
+  if (!file || !fs.existsSync(file)) throw new Error('The application CV file is missing. Regenerate it from the board.');
 
   // What each file input on the page looks like it is for — a cover letter or
   // portfolio field reads differently from a resume/CV one. A failure here

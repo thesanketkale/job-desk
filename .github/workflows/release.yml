@@ -44,8 +44,8 @@ jobs:
       - name: Bake service keys into this build
         env:
           BAKED_GEMINI_API_KEY: ${{ secrets.BAKED_GEMINI_API_KEY }}
-          BAKED_ANTHROPIC_API_KEY: ${{ secrets.BAKED_ANTHROPIC_API_KEY }}
-          BAKED_OPENROUTER_API_KEY: ${{ secrets.BAKED_OPENROUTER_API_KEY }}
+          BAKED_ANTHROPIC_API_KEY: ${{ secrets.BAKED_ANTHROPIC_API_KEY || vars.BAKED_ANTHROPIC_API_KEY }}
+          BAKED_OPENROUTER_API_KEY: ${{ secrets.BAKED_OPENROUTER_API_KEY || vars.BAKED_OPENROUTER_API_KEY }}
           BAKED_GITHUB_PAT: ${{ secrets.BAKED_GITHUB_PAT }}
           BAKED_ADZUNA_APP_ID: ${{ secrets.BAKED_ADZUNA_APP_ID }}
           BAKED_ADZUNA_APP_KEY: ${{ secrets.BAKED_ADZUNA_APP_KEY }}

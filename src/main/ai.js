@@ -9,7 +9,7 @@
  * produced it, so a cheaper or free provider is never a weaker one on the point
  * that matters.
  */
-const { postJson, getJson } = require('./http');
+const { postJsonResult, getJson } = require('./http');
 const settings = require('./settings');
 const budget = require('./budget');
 const providers = require('./providers');
@@ -131,7 +131,7 @@ function keyOrThrow() {
   return key;
 }
 
-const available = () => !!storedKey();
+const available = () => ['gemini', 'openrouter', 'anthropic'].some((id) => !!storedKey(id));
 
 function extractJson(text) {
   let s = String(text || '').trim().replace(/^```(?:json)?\s*|\s*```$/gm, '');
@@ -142,21 +142,159 @@ function extractJson(text) {
   try { return JSON.parse(s.slice(a, b + 1)); } catch { return null; }
 }
 
+const GEMINI_APPLICATION_MODELS = [
+  'gemini-3.7-flash',
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+];
+
+/**
+ * Builds the fixed free-first inference order used for application work.
+ * @param opts Optional explicit provider details used by API key checks.
+ * @return Ordered attempt objects as an Array.
+ */
+function buildAttemptPlan(opts = {}) {
+  if (opts.provider || opts.key || opts.cheap) {
+    const id = opts.provider || budget.providerId();
+    const model = opts.model || providers.get(id).defaultModel;
+    return [{ id, model, key: opts.key || storedKey(id) || keyOrThrow(),
+      free: id === 'gemini' || model === 'openrouter/free' }];
+  }
+
+  const attempts = [];
+  const geminiKey = storedKey('gemini');
+  if (geminiKey) {
+    for (const model of GEMINI_APPLICATION_MODELS) {
+      attempts.push({ id: 'gemini', model, key: geminiKey, free: true });
+    }
+  }
+  const openRouterKey = storedKey('openrouter');
+  if (openRouterKey) {
+    attempts.push({ id: 'openrouter', model: 'openrouter/free', key: openRouterKey, free: true });
+  }
+  const anthropicKey = storedKey('anthropic');
+  if (anthropicKey) {
+    attempts.push({ id: 'anthropic', model: providers.get('anthropic').defaultModel,
+      key: anthropicKey, free: false });
+  }
+  return attempts;
+}
+
+function retryable(status, message) {
+  if (status === 408 || status === 425 || status === 429 || status >= 500) return true;
+  return !status && /timed out|timeout|request failed|fetch failed|network|socket/i.test(String(message || ''));
+}
+
+function retryDelay(retryAfter) {
+  const seconds = Number(retryAfter);
+  if (Number.isFinite(seconds) && seconds > 0) return Math.min(10000, seconds * 1000);
+  const retryAt = Date.parse(String(retryAfter || ''));
+  if (Number.isFinite(retryAt)) return Math.max(250, Math.min(10000, retryAt - Date.now()));
+  return 900 + Math.floor(Math.random() * 500);
+}
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Calls the free-first model chain and returns the first usable response.
+ * @param system System instructions for the model.
+ * @param user User content for the model.
+ * @param maxTokens Maximum output token budget.
+ * @param opts Validation, transport, and request metadata.
+ * @return Normalized response details as an Object.
+ */
 async function call(system, user, maxTokens = 8000, opts = {}) {
-  budget.checkBeforeCall();               // refuse before spending, not after
-  const id = opts.provider || budget.providerId();
-  const p = providers.get(id);
-  const model = opts.model || budget.model();
-  // An explicit key is passed only when checking one that is not saved yet.
-  const key = opts.key || keyOrThrow();
+  const attempts = buildAttemptPlan(opts);
+  if (!attempts.length) throw new Error('No AI key is available.');
 
-  const req = providers.buildRequest(id, { model, system, user, maxTokens, key, cheap: !!opts.cheap });
-  const raw = await postJson(req.url, req.body, req.headers);
-  const out = providers.parseResponse(id, raw);
+  const transport = opts.transport || postJsonResult;
+  const sleeper = opts.sleep || wait;
+  const deadline = Date.now() + Math.max(1000, Number(opts.deadlineMs) || 180000);
+  let lastErr = null;
+  let totalSpend = 0;
+  let warning = null;
+  const disabledProviders = new Set();
 
-  if (out.error) throw new Error(friendlyError(out.error, p, model));
-  if (!out.text) throw new Error(`${p.label} replied with nothing usable. Try that role again.`);
-  return { text: out.text, usage: out.usage || {}, model, stopReason: out.stopReason };
+  for (const attempt of attempts) {
+    const { id, model, key, free } = attempt;
+    if (disabledProviders.has(id)) continue;
+    const p = providers.get(id);
+    if (!free) {
+      try {
+        budget.checkBeforeCall(model, id);
+      } catch (err) {
+        lastErr = err;
+        continue;
+      }
+    }
+
+    for (let retry = 0; retry < 2; retry++) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const req = providers.buildRequest(id, {
+        model,
+        system,
+        user,
+        maxTokens,
+        key,
+        cheap: !!opts.cheap,
+        json: !!opts.json,
+      });
+
+      let response;
+      try {
+        response = await transport(req.url, req.body, req.headers, Math.min(45000, remaining), 0);
+      } catch (err) {
+        lastErr = err;
+        const status = Number(err.status || 0);
+        if (status === 401 || status === 403 || !status) {
+          disabledProviders.add(id);
+        }
+        if (status && retry === 0 && retryable(status, err.message)) {
+          await sleeper(retryDelay(''));
+          continue;
+        }
+        break;
+      }
+
+      const out = providers.parseResponse(id, response.data);
+      if (out.error || !response.ok) {
+        const message = out.error || `HTTP ${response.status}`;
+        lastErr = new Error(friendlyError(message, p, model));
+        if (response.status === 401 || response.status === 403) disabledProviders.add(id);
+        if (retry === 0 && retryable(response.status, message)) {
+          await sleeper(retryDelay(response.retryAfter));
+          continue;
+        }
+        break;
+      }
+
+      if (!free && out.usage && (out.usage.input_tokens || out.usage.output_tokens)) {
+        const recorded = budget.record(out.usage, model, opts.kind || 'AI request', id);
+        totalSpend += recorded.spend;
+        warning = warning || recorded.warning;
+      }
+
+      const usable = out.text && (!opts.accept || opts.accept(out.text, out));
+      if (!usable) {
+        lastErr = new Error(`${p.label} replied with nothing usable.`);
+        break;
+      }
+
+      return {
+        text: out.text,
+        usage: out.usage || {},
+        model: out.model || model,
+        requestedModel: model,
+        providerId: id,
+        providerLabel: p.label,
+        stopReason: out.stopReason,
+        spend: { spend: totalSpend, warning },
+      };
+    }
+  }
+
+  throw lastErr || new Error('No AI service was available.');
 }
 
 /** 'max_tokens' (Anthropic) and 'length' (the OpenAI-compatible wire) both
@@ -186,7 +324,7 @@ function friendlyError(message, p, model) {
   if (/not.?found|does not exist|no longer available|unknown model|invalid model|404/i.test(m)) {
     return `The model "${model}" was not available on ${p.label}. Pick a different one in Settings.`;
   }
-  if (/rate.?limit|overloaded|resource.?exhausted|429|too many/i.test(m)) {
+  if (/rate.?limit|overloaded|high.?demand|resource.?exhausted|429|too many/i.test(m)) {
     return p.freeTier
       ? `${p.label} is rate limiting the free tier right now. Wait a minute and try that role again.`
       : `${p.label} is busy right now. Try that role again in a minute.`;
@@ -269,16 +407,20 @@ function enforceResumeTruth(rawText, cv) {
  */
 async function structureResume(rawText, fallback = null) {
   const text = String(rawText || '').slice(0, 24000);
-  const { text: reply, usage, model, stopReason } = await call(RESUME_SYSTEM, `RESUME:\n${text}`, 8000);
-  budget.record(usage, model, 'resume import');
+  const result = await call(RESUME_SYSTEM, `RESUME:\n${text}`, 8000, {
+    kind: 'resume import',
+    json: true,
+    accept: (reply) => !!extractJson(reply)?.name,
+  });
+  const { text: reply, providerId, stopReason } = result;
 
   const out = extractJson(reply);
   if (!out || !out.name) {
     if (fallback) return fallback;
     throw new Error(wasTruncated(stopReason)
-      ? `${budget.provider().label} cut its reply off before it finished reading that resume — it may be `
+      ? `${providers.get(providerId).label} cut its reply off before it finished reading that resume - it may be `
         + 'unusually long. Try again, or edit the details by hand.'
-      : `${budget.provider().label} could not read that resume. `
+      : `${providers.get(providerId).label} could not read that resume. `
         + 'Check the text, or edit the details by hand.');
   }
   enforceResumeTruth(text, out);
@@ -309,24 +451,34 @@ ${jd}`;
   // or a long job description, cutting the reply off mid-JSON. It still
   // always fails to parse when that happens; the point is to say so
   // specifically rather than blame the app for "something unreadable".
-  const { text, usage, model, stopReason } = await call(SYSTEM, user, 16000);
-  const spend = budget.record(usage, model, 'tailor');
+  const result = await call(SYSTEM, user, 16000, {
+    kind: 'tailor',
+    json: true,
+    accept: (reply) => !!extractJson(reply)?.resume,
+  });
+  const { text, model, providerId, providerLabel, stopReason, spend } = result;
   const out = extractJson(text);
   if (!out?.resume) {
     // Weaker and free models are markedly worse at returning clean JSON, so this
     // says which service produced the mess rather than blaming the app.
     throw new Error(wasTruncated(stopReason)
-      ? `${budget.provider().label} cut the reply off before it finished — the CV or job description may `
+      ? `${providers.get(providerId).label} cut the reply off before it finished - the CV or job description may `
         + 'be unusually long. Try that role again, or pick a stronger model in Settings.'
-      : `${budget.provider().label} replied with something the app could not read. `
+      : `${providers.get(providerId).label} replied with something the app could not read. `
         + 'Try that role again, or pick a stronger model in Settings.');
   }
 
   const dropped = enforceTruth(master, out.resume);
+  settings.set('tailor_count', Number(settings.get('tailor_count', 0)) + 1);
   const notes = (out.match_notes || []).filter(Boolean).map(String);
   if (dropped.length) {
     notes.push(`The app removed ${dropped.length} experience entr${dropped.length === 1 ? 'y' : 'ies'} that did not match the master CV.`);
   }
+  // The person should know a stand-in answered, same as any other place this
+  // app shows what it did rather than doing it silently - not just for
+  // curiosity, but because a weaker fallback model is exactly when the CV is
+  // worth a closer read before sending.
+  notes.push(`AI edited the CV and drafted the email and covering letter using ${providerLabel} (${model}).`);
 
   return {
     resume: out.resume,
@@ -336,6 +488,13 @@ ${jd}`;
     match_score: Math.max(0, Math.min(100, Number(out.match_score) || 0)),
     match_notes: notes,
     spend,
+    provenance: {
+      kind: 'ai',
+      provider: providerLabel,
+      provider_id: providerId,
+      model,
+      actions: ['cv_tailoring', 'email_draft', 'cover_letter_draft'],
+    },
   };
 }
 
@@ -348,7 +507,7 @@ ${jd}`;
  */
 async function answerFormFields({ fields, cv, job }) {
   const asked = (fields || []).filter((f) => f && f.label);
-  if (!asked.length) return [];
+  if (!asked.length) return { answers: [], provenance: null };
 
   const user = `THE CANDIDATE'S CV (JSON, the only source of truth):
 ${JSON.stringify(cv, null, 2)}
@@ -370,8 +529,12 @@ ${JSON.stringify(asked.map((f) => ({
     ...(f.options?.length ? { must_be_one_of: f.options } : {}),
   })), null, 2)}`;
 
-  const { text, usage, model } = await call(FORM_SYSTEM, user, 4000);
-  budget.record(usage, model, 'form answers');
+  const result = await call(FORM_SYSTEM, user, 4000, {
+    kind: 'form answers',
+    json: true,
+    accept: (reply) => Array.isArray(extractJson(reply)?.answers),
+  });
+  const { text, model, providerId, providerLabel } = result;
 
   const parsed = extractJson(text);
   const byIndex = new Map(asked.map((f) => [f.index, f]));
@@ -388,7 +551,16 @@ ${JSON.stringify(asked.map((f) => ({
     if (PROTECTED_QUESTION.test(field.label)) continue;    // never ours to answer — see FORM_SYSTEM rule 4
     out.push({ index: field.index, value });
   }
-  return out;
+  return {
+    answers: out,
+    provenance: {
+      kind: 'ai',
+      provider: providerLabel,
+      provider_id: providerId,
+      model,
+      actions: ['form_answers'],
+    },
+  };
 }
 
 /**
@@ -409,8 +581,11 @@ ${String(application.body_text || '').slice(0, 2000)}
 THE CANDIDATE: ${cv.name || 'the candidate'}
 BACKGROUND IN ONE LINE: ${cv.pitch || cv.summary || 'An experienced professional.'}`;
 
-  const { text, usage, model } = await call(FOLLOWUP_SYSTEM, user, 1200);
-  budget.record(usage, model, 'follow-up');
+  const { text } = await call(FOLLOWUP_SYSTEM, user, 1200, {
+    kind: 'follow-up',
+    json: true,
+    accept: (reply) => !!extractJson(reply)?.body,
+  });
   const out = extractJson(text) || {};
   return {
     subject: String(out.subject || `Following up — ${job.title}`).trim(),
@@ -433,9 +608,10 @@ BACKGROUND IN ONE LINE: ${cv.pitch || cv.summary || 'An experienced professional
  */
 async function ping(opts = {}) {
   const id = opts.provider || budget.providerId();
-  const { usage, model } = await call('Reply with the single word: ok', 'ping', 300,
-    { ...opts, provider: id, cheap: true });
-  budget.record(usage, model, 'key check');
+  const requestedModel = opts.model
+    || (id === 'openrouter' ? 'openrouter/free' : providers.get(id).defaultModel);
+  const { model } = await call('Reply with the single word: ok', 'ping', 300,
+    { ...opts, provider: id, model: requestedModel, cheap: true, kind: 'key check' });
   return {
     ok: true,
     provider: id,
@@ -458,4 +634,5 @@ async function validateKey(key, providerId = budget.providerId()) {
 }
 
 module.exports = { available, tailor, followup, enforceTruth, extractJson, ping, validateKey,
-  structureResume, enforceResumeTruth, listModels, storedKey, answerFormFields, PROTECTED_QUESTION };
+  structureResume, enforceResumeTruth, listModels, storedKey, answerFormFields, PROTECTED_QUESTION,
+  buildAttemptPlan, call };
