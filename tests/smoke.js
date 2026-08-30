@@ -886,6 +886,85 @@ ok('the script is built', src.includes('Srishti') && src.length > 1000);
 ok('it never presses submit', !/\.submit\(|click\(\)/.test(src));
 ok('it embeds the details safely', src.includes('"firstName":"Srishti"'));
 
+/* The rule table matched any substring, so 'address' inside "Email address"
+   beat 'email' on length and put her city in the employer's email box, and
+   'city' inside "Ethnicity" put it in a protected demographic field. Both
+   were found by running this script against a real form, not by reading it. */
+{
+  const vm = require('node:vm');
+  const PROFILE = {
+    firstName: 'Srishti', lastName: 'Sharma', fullName: 'Srishti Sharma',
+    email: 'hi@example.test', phone: '+91 90000 00000', linkedin: 'https://li/x',
+    website: '', city: 'Pune', state: 'Maharashtra', country: 'India',
+    location: 'Pune, Maharashtra, India', noticePeriod: '1 month',
+    yearsExperience: '6', currentSalary: '', expectedSalary: '',
+    coverLetter: 'A letter.',
+  };
+
+  /** Runs the real generated script over one fake text input per label.
+   *  `seed` may pre-fill nodes, to prove the script leaves those alone. */
+  const fillLabels = (labels, seed = null) => {
+    const ctx = {};
+    vm.createContext(ctx);
+    vm.runInContext(`
+      globalThis.HTMLInputElement = class { constructor(){ this._v=''; } };
+      Object.defineProperty(HTMLInputElement.prototype,'value',
+        { get(){ return this._v; }, set(v){ this._v = v; }, configurable: true });
+      globalThis.HTMLTextAreaElement = class extends HTMLInputElement {};
+      globalThis.Event = class { constructor(t){ this.type = t; } };
+      globalThis.getComputedStyle = () => ({ visibility: 'visible' });
+    `, ctx);
+
+    const nodes = labels.map((label) => {
+      const el = new ctx.HTMLInputElement();
+      Object.assign(el, {
+        name: '', id: '', placeholder: '', disabled: false, readOnly: false,
+        labels: null, style: {},
+        getAttribute: (a) => (a === 'aria-label' ? label : null),
+        setAttribute: () => {}, closest: () => null,
+        getBoundingClientRect: () => ({ width: 100, height: 20 }),
+        dispatchEvent: () => true,
+      });
+      return el;
+    });
+    if (seed) seed(nodes);
+    ctx.document = {
+      querySelectorAll: (sel) => (sel.includes('input[type=file]') || sel === 'select' ? [] : nodes),
+    };
+    const out = vm.runInContext(buildScript(PROFILE), ctx);
+    return { out, values: nodes.map((n) => n.value) };
+  };
+
+  const email = fillLabels(['Email address']);
+  ok('"Email address" gets the email, not the city she lives in',
+    email.values[0] === 'hi@example.test', email.values[0]);
+
+  const ethnicity = fillLabels(['Ethnicity']);
+  ok('an ethnicity field is left alone rather than filled with her city',
+    ethnicity.values[0] === '' && ethnicity.out.skipped.length === 1, ethnicity.values[0]);
+
+  const demographic = fillLabels(['Gender', 'Do you have a disability?', 'Veteran status',
+    'Nationality', 'Marital status']);
+  ok('no protected demographic question is ever answered by the rule table',
+    demographic.values.every((v) => v === ''), demographic.values.join('|'));
+
+  const substrings = fillLabels(['Personal statement', 'Supporting statement', 'Hometown']);
+  ok('a key only matches a whole word, so "statement" is not "state"',
+    substrings.values.every((v) => v === ''), substrings.values.join('|'));
+
+  const stillWorks = fillLabels(['First name', 'Email', 'Mobile number',
+    'Current location (City, State, Country)', 'Home address', 'Town/City', 'Country']);
+  ok('the fields that did work still work',
+    stillWorks.values.join('|')
+      === ['Srishti', 'hi@example.test', '+91 90000 00000', 'Pune, Maharashtra, India',
+        'Pune, Maharashtra, India', 'Pune', 'India'].join('|'),
+    stillWorks.values.join('|'));
+
+  const kept = fillLabels(['First name'], (nodes) => { nodes[0].value = 'Typed by her'; });
+  ok('a field the person already typed into is never overwritten',
+    kept.values[0] === 'Typed by her', kept.values[0]);
+}
+
 /* attachResume() used to attach the CV to every file input on the page —
    harmless on a form with one upload field, wrong on any form with a
    separate cover-letter or portfolio field, which received the CV too. */

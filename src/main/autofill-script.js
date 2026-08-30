@@ -44,7 +44,13 @@ function buildScript(profile) {
     { keys: ['city','town'],                                                 v: P.city },
     { keys: ['state','province','region'],                                   v: P.state },
     { keys: ['country'],                                                     v: P.country },
-    { keys: ['location','where are you based','current location','address'], v: P.location },
+    { keys: ['location','where are you based','current location'],           v: P.location },
+    // 'address' is its own weak rule, not a location key. "Email address" is
+    // the commonest spelling of an email field on a job form, and 'address'
+    // (7) beat 'email' (5) on length alone — so her city went into the
+    // employer's email box on most forms she would ever see. Weak means it
+    // still fills "Home address" or "Street address", where nothing else matches.
+    { keys: ['address'],                                                     v: P.location, weak: true },
     { keys: ['notice period','availability','when can you start'],           v: P.noticePeriod },
     { keys: ['years of experience','total experience','years experience'],   v: P.yearsExperience },
     { keys: ['current salary','current ctc'],                                v: P.currentSalary },
@@ -80,6 +86,22 @@ function buildScript(profile) {
     'input[type=text], input[type=email], input[type=tel], input[type=url], input:not([type]), textarea'
   )].filter(visible);
 
+  // Questions that are the candidate's alone to answer, so the rule table never
+  // writes into one. The same principle as ai.js#PROTECTED_QUESTION guarding the
+  // AI pass — kept separate and narrower on purpose, because this pass fills
+  // salary and notice period from what she saved herself, which the AI pass
+  // must not do. Demographic fields are the ones where a confident wrong answer
+  // does real harm, and 'Ethnicity' contains 'city', which is not a hypothetical:
+  // it put "Pune" in an ethnicity box.
+  const NEVER_FILL = /disab|gender|\\bsex\\b|ethnic|\\brace\\b|racial|veteran|nationality|religio|orientation|marital|pregnan|criminal|conviction/i;
+
+  // A key has to match whole words, not any substring. Plain includes() made
+  // 'city' match "Ethni-city", 'state' match "Personal state-ment" and 'town'
+  // match "Home-town" — each quietly writing the wrong value into a real field
+  // on a real form. buildFileInputMatchScript() below already matched on \\b
+  // boundaries for exactly this reason; this is the same rule applied here.
+  const wordRe = (k) => new RegExp(\`\\\\b\${k.replace(/[.*+?^\${}()|[\\]\\\\]/g, '\\\\$&')}\\\\b\`, 'i');
+
   // Pick the rule whose matching phrase is longest, not whichever comes first:
   // a label reading "Current location (City, State, Country)" must win 'location'
   // over 'city', even though 'city' is also present in it.
@@ -89,7 +111,7 @@ function buildScript(profile) {
     for (const rule of RULES) {
       if (!!rule.long !== isLong) continue;
       for (const k of rule.keys) {
-        if (!hay.includes(k)) continue;
+        if (!wordRe(k).test(hay)) continue;
         const len = k.length - (rule.weak ? 100 : 0);   // weak rules only win by default
         if (len > bestLen) { bestLen = len; best = { rule, key: k }; }
       }
@@ -98,15 +120,18 @@ function buildScript(profile) {
   };
 
   const filled = [];
+  const skipped = [];
   for (const el of inputs) {
-    const match = bestRule(labelFor(el), el instanceof HTMLTextAreaElement);
+    const hay = labelFor(el);
+    if (NEVER_FILL.test(hay)) { skipped.push(hay.slice(0, 40)); continue; }
+    const match = bestRule(hay, el instanceof HTMLTextAreaElement);
     if (match && setValue(el, match.rule.v)) filled.push(match.key);
   }
 
   const fileFields = [...document.querySelectorAll('input[type=file]')].filter(visible).length;
   const selects = [...document.querySelectorAll('select')].filter(visible).length;
 
-  return { filled, fileFields, selects, total: inputs.length };
+  return { filled, skipped, fileFields, selects, total: inputs.length };
 })()`;
   return source;
 }
