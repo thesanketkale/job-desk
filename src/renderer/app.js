@@ -15,7 +15,12 @@ const errorHtml = (msg) => (!msg ? ''
 /** Unwraps the {ok, data|error} envelope every channel returns. */
 async function call(fn, payload) {
   const res = await fn(payload);
-  if (!res?.ok) throw new Error(res?.error || 'Something went wrong.');
+  if (!res?.ok) {
+    const error = new Error(res?.error || 'Something went wrong.');
+    error.code = res?.code || '';
+    error.popupShown = !!res?.popupShown;
+    throw error;
+  }
   return res.data;
 }
 
@@ -27,7 +32,9 @@ function toast(message, kind = 'ok', ms = 5000) {
   setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .3s'; }, ms - 300);
   setTimeout(() => el.remove(), ms);
 }
-const oops = (err) => toast(err?.message || String(err), 'bad', 9000);
+const oops = (err) => {
+  if (!err?.popupShown) toast(err?.message || String(err), 'bad', 9000);
+};
 
 /* ---------------------------------------------------------------- dates */
 
@@ -168,7 +175,10 @@ function wireRefreshButtons() {
     refreshChrome();
   });
 
-  window.api.refresh.onError((e) => { finish(); oops(e); });
+  window.api.refresh.onError((e) => {
+    finish();
+    if (e?.code !== 'INTERNET_UNAVAILABLE') oops(e);
+  });
 }
 
 /* ------------------------------------------------------- shared chrome */
@@ -869,7 +879,9 @@ VIEWS.welcome = async function welcome() {
       finish();
     } catch (err) {
       // Nothing was saved, so she can correct it and try again.
-      $('#w-key-status').textContent = 'Not saved — the key was refused.';
+      $('#w-key-status').textContent = err?.popupShown
+        ? 'The internet check was cancelled. The key was not saved.'
+        : 'Not saved — the key was refused.';
       oops(err);
       done(btn);
     }

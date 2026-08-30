@@ -11,6 +11,7 @@ const on = (channel, fn) => {
 };
 
 contextBridge.exposeInMainWorld('api', {
+  network: { check: call('network:check') },
   jobs: {
     list: call('jobs:list'),
     get: call('jobs:get'),

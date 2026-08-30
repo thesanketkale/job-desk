@@ -284,6 +284,7 @@ what arms it; nothing in this codebase calls it directly.
 | `src/main/resume-parse.js` | Plain text → the CV shape, plus the flat profile facts. |
 | `src/main/resume-keywords.js` | CV → the query/boost vocabulary. |
 | `src/main/profile.js` | Owns the whole consequence of an import: CV, facts, mailbox, keywords. |
+| `src/main/network.js` | Shared connectivity check, transport-error normalisation, and Retry/Cancel action replay. |
 | `src/main/sources.js` | One adapter per job source. All published APIs; nothing scrapes. |
 | `src/main/normalize.js` | Feed data → one comparable shape. Work mode, place, entities, fingerprints. |
 | `src/main/score.js` | Keyword ranking. Title matches count triple. |

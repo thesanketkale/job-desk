@@ -10,6 +10,7 @@ const fs = require('node:fs');
 const { BrowserWindow, WebContentsView, session, shell, dialog } = require('electron');
 const { buildScript, buildCollectQuestionsScript, buildApplyAnswersScript,
   buildFileInputMatchScript, HIGHLIGHT_CSS } = require('./autofill-script');
+const network = require('./network');
 
 const TOOLBAR_H = 96;
 let win = null;
@@ -86,7 +87,7 @@ function open(ctx, parent) {
   const wc = view.webContents;
   wc.setWindowOpenHandler(({ url }) => {
     // Keep everything in this one view; only send genuinely external schemes out.
-    if (/^https?:/i.test(url)) { wc.loadURL(url); return { action: 'deny' }; }
+    if (/^https?:/i.test(url)) { wc.loadURL(url).catch(() => {}); return { action: 'deny' }; }
     shell.openExternal(url);
     return { action: 'deny' };
   });
@@ -95,11 +96,22 @@ function open(ctx, parent) {
     wc.insertCSS(HIGHLIGHT_CSS).catch(() => {});
     send('nav', { loading: false, url: wc.getURL(), title: wc.getTitle(), canGoBack: wc.navigationHistory.canGoBack() });
   });
-  wc.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
-    if (isMainFrame && code !== -3) send('loadError', { code, desc, url });
+  let handlingLoadFailure = false;
+  wc.on('did-fail-load', async (_e, code, desc, url, isMainFrame) => {
+    if (!isMainFrame || code === -3) return;
+    send('loadError', { code, desc, url });
+    if (handlingLoadFailure) return;
+    handlingLoadFailure = true;
+    try {
+      await network.runWithInternet(() => wc.loadURL(url), { parent: win });
+    } catch (error) {
+      if (!error?.popupShown) send('loadError', { code, desc: error.message, url });
+    } finally {
+      handlingLoadFailure = false;
+    }
   });
 
-  wc.loadURL(ctx.job.apply_url);
+  wc.loadURL(ctx.job.apply_url).catch(() => {});
   send('context', publicContext());
   return true;
 }
@@ -155,11 +167,11 @@ async function fillForm() {
   try {
     const fields = await view.webContents.executeJavaScript(buildCollectQuestionsScript(), true);
     if (!fields?.length) return result;
-    const answered = await ai.answerFormFields({
+    const answered = await network.runWithInternet(() => ai.answerFormFields({
       fields,
       cv: context.cv || context.profile,
       job: context.job,
-    });
+    }), { parent: win });
     if (!answered.answers.length) {
       result.provenance = {
         ...answered.provenance,
@@ -251,13 +263,13 @@ function revealResume(which = 'pdf') {
   return true;
 }
 
-const nav = (action) => {
+const nav = async (action) => {
   if (!view) return false;
   const h = view.webContents.navigationHistory;
   if (action === 'back' && h.canGoBack()) h.goBack();
   else if (action === 'forward' && h.canGoForward()) h.goForward();
   else if (action === 'reload') view.webContents.reload();
-  else if (action === 'home' && context) view.webContents.loadURL(context.job.apply_url);
+  else if (action === 'home' && context) await view.webContents.loadURL(context.job.apply_url);
   return true;
 };
 

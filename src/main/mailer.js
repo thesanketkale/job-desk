@@ -1,6 +1,7 @@
 'use strict';
 const nodemailer = require('nodemailer');
 const settings = require('./settings');
+const network = require('./network');
 
 function config() {
   const s = settings.secrets().smtp;
@@ -38,9 +39,12 @@ function friendlyError(err) {
 async function verify() {
   const s = config();
   try {
+    network.requireInternet();
     await transport(s).verify();
     return { ok: true, message: `Signed in to ${s.host} as ${s.user}.` };
   } catch (err) {
+    const normalised = network.normaliseInternetError(err);
+    if (normalised !== err) throw normalised;
     return { ok: false, message: friendlyError(err) };
   }
 }
@@ -49,6 +53,7 @@ async function verify() {
 async function send({ to, toName, subject, text, attachments = [], bcc = null }) {
   const s = config();
   try {
+    network.requireInternet();
     const info = await transport(s).sendMail({
       from: s.from_name
         ? { name: s.from_name, address: s.from_email || s.user }
@@ -65,6 +70,8 @@ async function send({ to, toName, subject, text, attachments = [], bcc = null })
     });
     return { ok: true, messageId: info.messageId };
   } catch (err) {
+    const normalised = network.normaliseInternetError(err);
+    if (normalised !== err) throw normalised;
     throw new Error(friendlyError(err));
   }
 }

@@ -1,7 +1,7 @@
 'use strict';
 const path = require('node:path');
 const fs = require('node:fs');
-const { ipcMain, shell, dialog, app } = require('electron');
+const { ipcMain, shell, dialog, app, BrowserWindow } = require('electron');
 
 const db = require('./db');
 const settings = require('./settings');
@@ -20,6 +20,7 @@ const updater = require('./updater');
 const profile = require('./profile');
 const resumeRead = require('./resume-read');
 const providers = require('./providers');
+const network = require('./network');
 
 /** Human labels for settings.deadSecrets()' raw keys, so a banner can say what
  *  needs re-entering rather than showing a database column name. */
@@ -52,18 +53,35 @@ const TODAY_ACTIVITY_KINDS = ['tailored', 'drafted', 'sent', 'submitted', 'send_
 
 /** Every handler returns {ok:true, data} or {ok:false, error} — the interface
  *  never has to guess whether something threw. */
-function handle(channel, fn) {
-  ipcMain.handle(channel, async (_event, payload) => {
+function handle(channel, fn, { internet = false, popup = internet } = {}) {
+  ipcMain.handle(channel, async (event, payload) => {
     try {
-      return { ok: true, data: await fn(payload || {}) };
+      const action = () => fn(payload || {});
+      const parent = BrowserWindow.fromWebContents(event.sender) || currentWindowProvider?.();
+      const data = internet
+        ? await network.runWithInternet(action, { parent, popup })
+        : await action();
+      return { ok: true, data };
     } catch (err) {
-      return { ok: false, error: String(err?.message || err) };
+      const shownError = internet ? network.normaliseInternetError(err) : err;
+      return {
+        ok: false,
+        error: String(shownError?.message || shownError),
+        code: shownError?.code || '',
+        popupShown: !!shownError?.popupShown,
+      };
     }
   });
 }
 
+let currentWindowProvider = null;
+
 function register(ctx) {
   const { getMainWindow, runRefresh, isRefreshing, applyBrowser } = ctx;
+  currentWindowProvider = getMainWindow;
+  const runOnline = (action) => network.runWithInternet(action, { parent: getMainWindow() });
+
+  handle('network:check', () => network.checkInternet());
 
   /* ---------------------------------------------------------- board ---- */
 
@@ -139,15 +157,15 @@ function register(ctx) {
   // same time as a full refresh, racing the same fetch_rotation counter and
   // writing overlapping fetch_log rows. Routing it through runRefresh() the
   // same as every other refresh closes that gap.
-  handle('refresh:run', ({ sourceId }) => runRefresh('button', sourceId || null));
+  handle('refresh:run', ({ sourceId }) => runRefresh('button', sourceId || null), { internet: true });
   handle('refresh:status', () => ({ running: isRefreshing(), lastAt: settings.get('last_refresh_at', null) }));
 
   /* -------------------------------------------------- applications ----- */
 
-  handle('apply:prepare', ({ jobId, force }) => applier.prepare(jobId, { force }));
+  handle('apply:prepare', ({ jobId, force }) => applier.prepare(jobId, { force, runOnline }));
   handle('apply:mode', () => ({ ai: ai.available() }));
   handle('apply:save', ({ id, ...fields }) => applier.save(id, fields));
-  handle('apply:send', ({ id }) => applier.send(id));
+  handle('apply:send', ({ id }) => applier.send(id), { internet: true });
   handle('apply:get', ({ id }) => applier.get(id));
   handle('apply:setStatus', ({ id, status }) => applier.setStatus(id, status));
   handle('apply:markSubmitted', ({ id, note }) => applier.markSubmitted(id, note));
@@ -186,8 +204,8 @@ function register(ctx) {
     upcoming: followups.upcoming(),
     history: followups.history(),
   }));
-  handle('followups:draft', ({ id }) => followups.draft(id));
-  handle('followups:send', ({ id, ...overrides }) => followups.send(id, overrides));
+  handle('followups:draft', ({ id }) => followups.draft(id, { runOnline }));
+  handle('followups:send', ({ id, ...overrides }) => followups.send(id, overrides), { internet: true });
   handle('followups:skip', ({ id }) => followups.skip(id));
   handle('followups:snooze', ({ id, days }) => followups.snooze(id, days));
 
@@ -245,14 +263,14 @@ function register(ctx) {
       }, 'id = ?', [id]);
     }
     return r;
-  });
+  }, { internet: true });
   handle('sources:add', async ({ type, label, slug }) => {
     if (!sources.TYPES[type]) throw new Error('Unknown kind of source.');
     if (!String(label || '').trim()) throw new Error('Give the source a name.');
     const probe = await sources.probe(type, slug, settings.secrets());
     if (!probe.ok) throw new Error(probe.error || 'That board did not respond.');
     return db.insert('sources', { type, label: label.trim(), slug: String(slug || '').trim(), config: '{}', active: 1 });
-  });
+  }, { internet: true });
   handle('sources:toggle', ({ id }) => db.run('UPDATE sources SET active = 1 - active WHERE id = ?', [id]).changes);
   handle('sources:delete', ({ id }) => db.run('DELETE FROM sources WHERE id = ?', [id]).changes);
 
@@ -282,7 +300,7 @@ function register(ctx) {
     }
     return settings.redacted();
   });
-  handle('settings:setSecret', ({ key, value }) => {
+  handle('settings:setSecret', async ({ key, value }) => {
     if (!['anthropic_api_key', 'gemini_api_key', 'openrouter_api_key',
       'smtp_password', 'adzuna', 'jooble', 'jsearch',
       'activejobsdb', 'ycjobs', 'github_pat'].includes(key)) {
@@ -308,12 +326,16 @@ function register(ctx) {
     // Activity log and Settings, the same as the periodic check.
     if (key === 'github_pat') {
       updater.applyFeed();
-      if (value) updater.checkNow().catch(() => {});
+      if (value) {
+        try { await runOnline(() => updater.checkNow()); }
+        catch (error) { if (!error?.popupShown) throw error; }
+      }
     }
     return settings.redacted();
   });
-  handle('settings:testMail', () => mailer.verify());
-  handle('settings:testClaude', ({ provider } = {}) => ai.ping({ provider: provider || budget.providerId() }));
+  handle('settings:testMail', () => mailer.verify(), { internet: true });
+  handle('settings:testClaude', ({ provider } = {}) => ai.ping({ provider: provider || budget.providerId() }),
+    { internet: true });
 
   /** Everything the interface needs to draw the provider picker. */
   handle('ai:providers', () => ({
@@ -351,7 +373,7 @@ function register(ctx) {
 
     db.logActivity('ai_key_added', `The ${providers.get(id).label} key was checked and saved.`);
     return { ...result, models: live };
-  });
+  }, { internet: true });
 
   /** Preserves the legacy provider setting API for existing renderer versions. */
   handle('ai:setProvider', ({ provider: wanted, model }) => {
@@ -382,7 +404,7 @@ function register(ctx) {
       attachments: [{ path: cvPath, filename: 'CV.pdf' }],
     });
     return { ok: true };
-  });
+  }, { internet: true });
 
   /* -------------------------------------------------------- the CV ----- */
 
@@ -410,11 +432,11 @@ function register(ctx) {
       ],
     });
     if (canceled || !filePaths?.length) return null;
-    return profile.preview({ filePath: filePaths[0] });
+    return profile.preview({ filePath: filePaths[0], runOnline });
   });
 
   /** Reads without saving, so the person can check it before it becomes theirs. */
-  handle('resume:preview', ({ filePath, text }) => profile.preview({ filePath, text }));
+  handle('resume:preview', ({ filePath, text }) => profile.preview({ filePath, text, runOnline }));
 
   /** Commits a reviewed resume: CV, profile facts, mailbox and vocabulary. */
   handle('resume:apply', ({ cv, rebuildKeywords = true }) => {
@@ -470,7 +492,7 @@ function register(ctx) {
   handle('shell:openExternal', ({ url }) => {
     if (!/^https?:/i.test(url)) throw new Error('Only web links can be opened.');
     return shell.openExternal(url);
-  });
+  }, { internet: true });
   handle('shell:openDataFolder', () => shell.openPath(db.paths.root));
 
   /** The full, unfiltered log — everything Today's "Recent activity" leaves
@@ -530,7 +552,7 @@ function register(ctx) {
       },
     }, getMainWindow());
     return true;
-  });
+  }, { internet: true });
   handle('browser:fill', async () => {
     const result = await applyBrowser.fillForm();
     if (result?.provenance && result.applicationId) {
@@ -540,7 +562,7 @@ function register(ctx) {
   });
   handle('browser:attach', ({ which }) => applyBrowser.attachResume(which));
   handle('browser:reveal', ({ which }) => applyBrowser.revealResume(which));
-  handle('browser:nav', ({ action }) => applyBrowser.nav(action));
+  handle('browser:nav', ({ action }) => applyBrowser.nav(action), { internet: true });
   handle('browser:close', () => applyBrowser.close());
   handle('browser:context', () => applyBrowser.publicContext());
   handle('browser:submitted', async ({ applicationId, note }) => {
@@ -589,7 +611,7 @@ function register(ctx) {
 
   handle('app:reseed', () => { seedIfEmpty(); return true; });
   handle('app:backup', () => db.backup());
-  handle('app:checkUpdates', () => updater.checkNow());
+  handle('app:checkUpdates', () => updater.checkNow(), { internet: true });
   handle('app:updateStatus', () => ({
     enabled: updater.enabled(), ...updater.config(), version: app.getVersion(),
     hasToken: updater.hasToken(), lastCheck: updater.lastCheck,

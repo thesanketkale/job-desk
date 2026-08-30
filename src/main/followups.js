@@ -52,7 +52,7 @@ const history = (limit = 60) => db.all(
    WHERE f.status IN ('sent','skipped') ORDER BY COALESCE(f.sent_at, f.due_on) DESC LIMIT ?`, [limit]);
 
 /** Writes the follow-up text and stores it as a draft on the follow-up row. */
-async function draft(followupId) {
+async function draft(followupId, { runOnline = (action) => action() } = {}) {
   const ai = require('./ai');
   const templates = require('./templates');
   const { master } = require('./master');
@@ -67,7 +67,7 @@ async function draft(followupId) {
   let out;
   if (ai.available()) {
     try {
-      out = await ai.followup({ job, application: a, daysSince, seq: f.seq, cv: master() });
+      out = await runOnline(() => ai.followup({ job, application: a, daysSince, seq: f.seq, cv: master() }));
     } catch {
       out = templates.draftFollowup(master(), job, daysSince);
     }

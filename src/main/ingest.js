@@ -4,6 +4,7 @@ const settings = require('./settings');
 const normalize = require('./normalize');
 const score = require('./score');
 const { fetchSource } = require('./sources');
+const network = require('./network');
 
 /**
  * Runs every active source and folds what comes back into the jobs table.
@@ -33,7 +34,12 @@ async function runAll({ sourceId = null, onProgress = () => {} } = {}) {
     onProgress({ index: i, total: sources.length, label: src.label });
 
     const started = Date.now();
-    const { rows, error } = await fetchSource(src, queries, secrets, rotation);
+    const { rows, error, errorCode } = await fetchSource(src, queries, secrets, rotation);
+    if (errorCode === network.INTERNET_ERROR_CODE) {
+      const internetError = new Error(error);
+      internetError.code = errorCode;
+      throw internetError;
+    }
     let inserted = 0;
     let updated = 0;
 

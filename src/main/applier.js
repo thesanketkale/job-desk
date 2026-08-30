@@ -38,7 +38,7 @@ const byJob = (jobId) => {
  * Tailors the CV against a role and stores a draft. Regenerating is fine;
  * an application that already went out is left alone unless forced.
  */
-async function prepare(jobId, { force = false } = {}) {
+async function prepare(jobId, { force = false, runOnline = (action) => action() } = {}) {
   const job = db.get('SELECT * FROM jobs WHERE id = ?', [jobId]);
   if (!job) throw new Error('That role is no longer in the list.');
 
@@ -55,7 +55,7 @@ async function prepare(jobId, { force = false } = {}) {
   let tailored;
   if (ai.available()) {
     try {
-      tailored = { mode: 'ai', ...await ai.tailor(cv, job) };
+      tailored = { mode: 'ai', ...await runOnline(() => ai.tailor(cv, job)) };
     } catch (err) {
       tailored = templates.draftApplication(cv, job, {
         aiUnavailable: true,

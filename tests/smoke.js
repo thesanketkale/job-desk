@@ -23,10 +23,31 @@ const score = require('../src/main/score');
 const claude = require('../src/main/ai');
 const settings = require('../src/main/settings');
 const updater = require('../src/main/updater');
+const network = require('../src/main/network');
 const seed = require('../src/main/seed');
 const { buildScript, buildFileInputMatchScript,
   buildCollectQuestionsScript, buildApplyAnswersScript } = require('../src/main/autofill-script');
 const { pickResumeTargets } = require('../src/main/apply-browser');
+
+group('Handling internet connection errors');
+const offlineStatus = network.checkInternet(() => false);
+ok('the common check reports a definite offline state',
+  offlineStatus.online === false && offlineStatus.code === network.INTERNET_ERROR_CODE);
+ok('the common check allows a possible connection', network.checkInternet(() => true).online === true);
+let offlineError = null;
+try { network.requireInternet(() => false); } catch (err) { offlineError = err; }
+ok('internet-only work stops with a structured error',
+  offlineError?.code === network.INTERNET_ERROR_CODE && /check/i.test(offlineError.message));
+const fetchError = new TypeError('fetch failed', { cause: Object.assign(new Error('lookup failed'), { code: 'ENOTFOUND' }) });
+const friendlyFetchError = network.normaliseInternetError(fetchError);
+ok('low-level fetch failures become a useful connection error',
+  friendlyFetchError.code === network.INTERNET_ERROR_CODE && !/fetch failed/i.test(friendlyFetchError.message));
+ok('Chromium page-load failures use the same connection error',
+  network.normaliseInternetError(new Error('ERR_INTERNET_DISCONNECTED loading page')).code
+    === network.INTERNET_ERROR_CODE);
+const providerError = new Error('That API key was rejected.');
+ok('service errors are not mislabelled as internet failures',
+  network.normaliseInternetError(providerError) === providerError);
 
 /* ------------------------------------------------------------ normalize */
 group('Reading messy feed data');
@@ -1022,6 +1043,47 @@ group('Making the CV files');
   ok('it is a real PDF', fs.readFileSync(pdfPath).subarray(0, 5).toString() === '%PDF-');
   ok('a Word file is produced', fs.existsSync(docxPath) && fs.statSync(docxPath).size > 5000);
   ok('it is a real docx', fs.readFileSync(docxPath).subarray(0, 2).toString() === 'PK');
+
+  group('Retrying internet actions without losing the original action');
+  let availabilityChecks = 0;
+  let actionRuns = 0;
+  let retryPrompts = 0;
+  const retriedResult = await network.runWithInternet(async () => {
+    actionRuns++;
+    return 'completed';
+  }, {
+    onlineCheck: () => ++availabilityChecks > 1,
+    ask: async () => { retryPrompts++; return 'retry'; },
+  });
+  ok('Retry checks connectivity again and runs the original action',
+    retriedResult === 'completed' && availabilityChecks === 2 && actionRuns === 1 && retryPrompts === 1);
+
+  let failedActionRuns = 0;
+  const replayedResult = await network.runWithInternet(async () => {
+    failedActionRuns++;
+    if (failedActionRuns === 1) {
+      const error = new Error('socket closed');
+      error.code = 'ECONNRESET';
+      throw error;
+    }
+    return 'replayed';
+  }, {
+    onlineCheck: () => true,
+    ask: async () => 'retry',
+  });
+  ok('Retry replays an action that failed during its network request',
+    replayedResult === 'replayed' && failedActionRuns === 2);
+
+  let cancelledActionRuns = 0;
+  let cancelledError = null;
+  try {
+    await network.runWithInternet(async () => { cancelledActionRuns++; }, {
+      onlineCheck: () => false,
+      ask: async () => 'cancel',
+    });
+  } catch (error) { cancelledError = error; }
+  ok('Cancel leaves the original action untouched and suppresses duplicate errors',
+    cancelledActionRuns === 0 && cancelledError?.popupShown === true);
 
   group('Archiving the exact submitted CV');
   const sourcePdf = path.join(db.paths.resumes, 'archive-source.pdf');

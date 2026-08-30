@@ -26,6 +26,7 @@
  */
 const { app, dialog, shell } = require('electron');
 const settings = require('./settings');
+const network = require('./network');
 
 let autoUpdater = null;
 let notified = false;
@@ -161,7 +162,9 @@ function init(getWindow) {
     require('./db').logActivity('update_error', String(err?.message || err).slice(0, 200));
   });
 
-  setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 8000);
+  setTimeout(() => {
+    network.runWithInternet(() => autoUpdater.checkForUpdates(), { popup: false }).catch(() => {});
+  }, 8000);
   return { enabled: true, channel: cfg.channel };
 }
 
@@ -213,7 +216,10 @@ function friendlyUpdateError(err) {
 async function checkNow() {
   const cfg = config();
   if (!enabled()) {
-    if (cfg.releasesPage) await shell.openExternal(cfg.releasesPage);
+    if (cfg.releasesPage) {
+      network.requireInternet();
+      await shell.openExternal(cfg.releasesPage);
+    }
     return {
       checked: false,
       current: app.getVersion(),
@@ -222,6 +228,7 @@ async function checkNow() {
         : 'This copy is updated by hand. Ask Sanket for the newest version.',
     };
   }
+  network.requireInternet();
   if (!autoUpdater) {
     try { ({ autoUpdater } = require('electron-updater')); }
     catch { return { checked: false, current: app.getVersion(), message: 'electron-updater is not installed.' }; }
@@ -238,6 +245,11 @@ async function checkNow() {
     lastCheck = { at: new Date().toISOString(), ok: true, message };
     return { checked: true, current: app.getVersion(), latest, message };
   } catch (err) {
+    const normalised = network.normaliseInternetError(err);
+    if (normalised !== err) {
+      lastCheck = { at: new Date().toISOString(), ok: false, message: normalised.message };
+      throw normalised;
+    }
     const message = friendlyUpdateError(err);
     lastCheck = { at: new Date().toISOString(), ok: false, message };
     return { checked: false, current: app.getVersion(), message };

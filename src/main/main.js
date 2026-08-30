@@ -12,6 +12,7 @@ const seed = require('./seed');
 const ingest = require('./ingest');
 const applyBrowser = require('./apply-browser');
 const updater = require('./updater');
+const network = require('./network');
 
 let mainWindow = null;
 let refreshing = false;
@@ -62,14 +63,23 @@ function createWindow() {
 
   // Any link to the outside world opens in her real browser, not inside the app.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/i.test(url)) shell.openExternal(url);
+    if (/^https?:/i.test(url)) openExternalWithRetry(url);
     return { action: 'deny' };
   });
   mainWindow.webContents.on('will-navigate', (e, url) => {
-    if (!url.startsWith('file://')) { e.preventDefault(); shell.openExternal(url); }
+    if (!url.startsWith('file://')) { e.preventDefault(); openExternalWithRetry(url); }
   });
 
   mainWindow.on('closed', () => { mainWindow = null; });
+}
+
+/**
+ * Opens a web link after the shared connectivity check.
+ * @param url Web address to open in the system browser.
+ */
+function openExternalWithRetry(url) {
+  network.runWithInternet(() => shell.openExternal(url), { parent: mainWindow })
+    .catch((error) => { if (!error?.popupShown) logCrash('openExternal', error); });
 }
 
 function buildMenu() {
@@ -77,7 +87,18 @@ function buildMenu() {
     {
       label: 'File',
       submenu: [
-        { label: 'Refresh job sources', accelerator: 'CmdOrCtrl+R', click: () => runRefresh('menu') },
+        {
+          label: 'Refresh job sources',
+          accelerator: 'CmdOrCtrl+R',
+          click: async () => {
+            try {
+              await network.runWithInternet(() => runRefresh('menu'), { parent: mainWindow });
+            }
+            catch (err) {
+              if (!err?.popupShown) throw err;
+            }
+          },
+        },
         { type: 'separator' },
         {
           label: 'Open the data folder',
@@ -86,10 +107,14 @@ function buildMenu() {
         {
           label: 'Check for updates',
           click: async () => {
-            const r = await updater.checkNow();
-            if (r.message) {
-              dialog.showMessageBox(mainWindow, { type: 'info', message: r.message,
-                detail: `Installed version: ${app.getVersion()}`, buttons: ['OK'] });
+            try {
+              const r = await network.runWithInternet(() => updater.checkNow(), { parent: mainWindow });
+              if (r.message) {
+                dialog.showMessageBox(mainWindow, { type: 'info', message: r.message,
+                  detail: `Installed version: ${app.getVersion()}`, buttons: ['OK'] });
+              }
+            } catch (err) {
+              if (!err?.popupShown) throw err;
             }
           },
         },
@@ -132,6 +157,7 @@ function buildMenu() {
  *  launch check does not also fire straight after a manual one. */
 async function runRefresh(reason = 'manual', sourceId = null) {
   if (refreshing) return { skipped: true, reason: 'already running' };
+  network.requireInternet();
   refreshing = true;
   const notify = (channel, payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload);
@@ -145,8 +171,9 @@ async function runRefresh(reason = 'manual', sourceId = null) {
     notify('refresh:done', summary);
     return summary;
   } catch (err) {
-    notify('refresh:error', { message: String(err.message) });
-    throw err;
+    const shownError = network.normaliseInternetError(err);
+    notify('refresh:error', { message: String(shownError.message), code: shownError.code || '' });
+    throw shownError;
   } finally {
     settings.set('refresh_last_date', todayLocal());
     refreshing = false;

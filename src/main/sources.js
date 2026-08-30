@@ -5,6 +5,7 @@
  * career feed, so it will not break on a redesign or get an IP blocked.
  */
 const { getJson, request, describeHttpError } = require('./http');
+const network = require('./network');
 
 const TYPES = {
   adzuna:     'Adzuna — multi-country, including India',
@@ -52,6 +53,15 @@ function isQuotaError(err) {
   return /\b429\b|rate.?limit|quota|too many requests|forbidden|\b403\b/i.test(String(err && err.message));
 }
 
+/**
+ * Preserves connectivity failures instead of treating them as an empty feed.
+ * @param error Error caught by a source adapter.
+ */
+function rethrowInternetError(error) {
+  const normalised = network.normaliseInternetError(error);
+  if (normalised?.code === network.INTERNET_ERROR_CODE) throw normalised;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Aggregators                                                        */
 /* ------------------------------------------------------------------ */
@@ -74,6 +84,7 @@ async function adzuna({ config, secrets, queries, rotation }) {
         try {
           d = await getJson(url);
         } catch (err) {
+          rethrowInternetError(err);
           if (isQuotaError(err)) throw new Error('Adzuna refused further requests (rate limit). Some roles may be missing from this run.');
           break;
         }
@@ -111,6 +122,7 @@ async function remotive({ queries, config = {}, rotation }) {
     try {
       d = await getJson(`https://remotive.com/api/remote-jobs?limit=100&search=${encodeURIComponent(q)}`);
     } catch (err) {
+      rethrowInternetError(err);
       if (isQuotaError(err)) throw new Error('Remotive refused further requests (rate limit). Some roles may be missing from this run.');
       continue;
     }
@@ -150,6 +162,7 @@ async function arbeitnow() {
     try {
       d = await getJson(`https://www.arbeitnow.com/api/job-board-api?page=${p}`);
     } catch (err) {
+      rethrowInternetError(err);
       if (isQuotaError(err)) throw new Error('Arbeitnow refused further requests (rate limit). Some roles may be missing from this run.');
       break;
     }
@@ -175,6 +188,7 @@ async function himalayas() {
     try {
       d = await getJson(`https://himalayas.app/jobs/api?limit=100&offset=${off}`);
     } catch (err) {
+      rethrowInternetError(err);
       if (isQuotaError(err)) throw new Error('Himalayas refused further requests (rate limit). Some roles may be missing from this run.');
       break;
     }
@@ -239,6 +253,11 @@ async function jooble({ secrets, queries, config = {}, rotation }) {
         body: JSON.stringify({ keywords: q, location, page: String(p) }),
       });
       if (!r.ok) {
+        if (r.code === network.INTERNET_ERROR_CODE) {
+          const error = new Error(r.error);
+          error.code = r.code;
+          throw error;
+        }
         if (r.status === 429 || r.status === 403) {
           throw new Error('Jooble refused further requests (rate limit). Some roles may be missing from this run.');
         }
@@ -300,6 +319,7 @@ async function jsearch({ secrets, queries, config = {}, rotation }) {
     try {
       d = await getJson(url, headers);
     } catch (err) {
+      rethrowInternetError(err);
       if (isQuotaError(err)) throw new Error('JSearch refused further requests (rate limit). Some roles may be missing from this run.');
       continue;
     }
@@ -358,6 +378,7 @@ async function activeJobsDb({ secrets, queries, config = {}, rotation }) {
     try {
       jobs = await getJson(url, headers);
     } catch (err) {
+      rethrowInternetError(err);
       if (isQuotaError(err)) throw new Error('Active Jobs DB refused further requests (rate limit). Some roles may be missing from this run.');
       continue;
     }
@@ -410,6 +431,7 @@ async function ycJobs({ secrets, config = {} }) {
   try {
     jobs = await getJson(`https://free-y-combinator-jobs-api.p.rapidapi.com/active-jb-${encodeURIComponent(window_)}`, headers);
   } catch (err) {
+    rethrowInternetError(err);
     if (isQuotaError(err)) throw new Error('Free Y Combinator Jobs API refused further requests (rate limit). Some roles may be missing from this run.');
     return [];
   }
@@ -488,6 +510,11 @@ async function workable({ slug }) {
 async function rss({ slug }) {
   if (!slug) throw new Error('Feed address is missing');
   const r = await request(slug, { headers: { Accept: 'application/rss+xml, application/atom+xml, application/xml' } });
+  if (r.code === network.INTERNET_ERROR_CODE) {
+    const error = new Error(r.error);
+    error.code = r.code;
+    throw error;
+  }
   if (!r.ok) throw new Error(`That feed did not reply: ${describeHttpError(r.status, r.error)}.`);
   const xml = r.text;
   const blocks = xml.match(/<(item|entry)[\s\S]*?<\/\1>/gi) || [];
@@ -529,16 +556,22 @@ async function fetchSource(source, queries, secrets, rotation = 0) {
     const rows = await adapter({ slug: (source.slug || '').trim(), config, secrets, queries, rotation });
     return { rows, error: null };
   } catch (err) {
+    const normalised = network.normaliseInternetError(err);
     const msg = BOARD_TYPES.has(source.type) && err.status === 404
       ? 'No board found under that name — try the exact name from the company’s own careers page.'
-      : String(err.message || err).slice(0, 400);
-    return { rows: [], error: msg };
+      : String(normalised.message || normalised).slice(0, 400);
+    return { rows: [], error: msg, errorCode: normalised.code || '' };
   }
 }
 
 /** Used by the Test button so a wrong board name is caught before it is saved. */
 async function probe(type, slug, secrets) {
   const r = await fetchSource({ type, slug, config: '{}' }, ['counsellor'], secrets || {}, 0);
+  if (r.errorCode === network.INTERNET_ERROR_CODE) {
+    const error = new Error(r.error);
+    error.code = r.errorCode;
+    throw error;
+  }
   return {
     ok: r.error === null,
     count: r.rows.length,

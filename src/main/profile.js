@@ -21,7 +21,7 @@ const resumeKeywords = require('./resume-keywords');
  * the person confirms it, because a heuristic parse that is wrong and silent is
  * worse than one that is wrong and visible.
  */
-async function preview({ filePath, text }) {
+async function preview({ filePath, text, runOnline = (action) => action() }) {
   let raw = text;
   let file = '';
   let kind = 'text';
@@ -57,7 +57,7 @@ async function preview({ filePath, text }) {
   const ai = require('./ai');
   if (ai.available()) {
     try {
-      cv = await ai.structureResume(raw, cv);
+      cv = await runOnline(() => ai.structureResume(raw, cv));
       aiUsed = true;
     } catch { /* the heuristic parse stands */ }
   }

@@ -1,11 +1,17 @@
 'use strict';
+const network = require('./network');
 const UA = 'JobDesk/1.0 (personal job search assistant)';
 
 async function request(url, { method = 'GET', headers = {}, body = null, timeout = 25000, retries = 2 } = {}) {
+  const availability = network.checkInternet();
+  if (!availability.online) {
+    return { ok: false, status: 0, error: availability.message, code: availability.code, text: '', retryAfter: '' };
+  }
   let lastError = null;
   let lastText = '';
   let lastStatus = 0;
   let lastRetryAfter = '';
+  let lastCode = '';
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       const res = await fetch(url, {
@@ -26,14 +32,24 @@ async function request(url, { method = 'GET', headers = {}, body = null, timeout
       lastError = `HTTP ${res.status}`;
       lastText = text;
       lastStatus = res.status;
+      lastCode = '';
       const transient = res.status === 429 || res.status >= 500;
       if (!transient) return { ok: false, status: res.status, error: lastError, text, retryAfter };
     } catch (err) {
-      lastError = err.name === 'TimeoutError' ? 'timed out' : err.message;
+      const normalised = network.normaliseInternetError(err);
+      lastError = normalised.message;
+      lastCode = normalised.code || '';
     }
     if (attempt < retries) await new Promise((r) => setTimeout(r, 600 * (attempt + 1)));
   }
-  return { ok: false, status: lastStatus, error: lastError, text: lastText, retryAfter: lastRetryAfter };
+  return {
+    ok: false,
+    status: lastStatus,
+    error: lastError,
+    code: lastCode,
+    text: lastText,
+    retryAfter: lastRetryAfter,
+  };
 }
 
 /** Turns a bare status code into something worth reading; a network failure
@@ -53,6 +69,7 @@ async function getJson(url, headers = {}, timeout = 25000) {
   if (!r.ok) {
     const err = new Error(describeHttpError(r.status, r.error));
     err.status = r.status;
+    err.code = r.code || '';
     throw err;
   }
   try { return JSON.parse(r.text); }
@@ -76,6 +93,7 @@ async function postJsonResult(url, payload, headers = {}, timeout = 180000, retr
   if (!r.text) {
     const err = new Error(r.error || 'request failed');
     err.status = r.status || 0;
+    err.code = r.code || '';
     throw err;
   }
   try {
@@ -89,6 +107,7 @@ async function postJsonResult(url, payload, headers = {}, timeout = 180000, retr
   catch {
     const err = new Error(r.ok ? 'unexpected reply from the API' : (r.error || 'request failed'));
     err.status = r.status || 0;
+    err.code = r.code || '';
     throw err;
   }
 }
