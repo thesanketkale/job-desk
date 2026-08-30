@@ -418,12 +418,17 @@ function renderApplication(a) {
   $('#drawer-title').textContent = j.title || 'Application';
   $('#drawer-sub').textContent = `${j.company || ''} · ${j.location_raw || ''}`;
 
-  const template = a.mode !== 'ai';
-  const resumeLabel = template ? 'original CV' : 'AI-tailored CV';
+  const aiPrepared = a.mode === 'ai';
+  const usingOriginalCv = a.resume_choice === 'original' || !aiPrepared;
+  const template = !aiPrepared;
+  const resumeLabel = usingOriginalCv ? 'original CV' : 'AI-tailored CV';
   const automation = Array.isArray(a.automation_log) ? a.automation_log : [];
   const preparation = automation.map((entry) => {
     if (entry.kind === 'ai') {
       return `<li><b>AI used:</b> ${esc(entry.provider || 'AI service')}${entry.model ? ` (${esc(entry.model)})` : ''}. ${esc(entry.detail || describeActions(entry.actions))}</li>`;
+    }
+    if (entry.kind === 'user_choice') {
+      return `<li><b>Your choice:</b> ${esc(entry.detail)}</li>`;
     }
     return `<li><b>No AI:</b> ${esc(entry.detail || describeActions(entry.actions) || 'Original CV and local templates were used.')}</li>`;
   }).join('') || `<li>${template ? 'Original CV and local templates were used.' : 'AI was used to prepare this application.'}</li>`;
@@ -447,6 +452,8 @@ function renderApplication(a) {
       <div class="panel__head"><h3>How this application was prepared</h3>
         <span class="pill pill--${template ? 'draft' : 'sent'}">${template ? 'original CV' : 'AI assisted'}</span></div>
       <ul class="notes" style="margin-top:var(--s3)">${preparation}</ul>
+      ${aiPrepared && usingOriginalCv ? `<p class="small muted" style="margin-top:var(--s3)">
+        You chose to attach your original CV instead of the version AI tailored for this role — the AI-tailored copy is still saved below.</p>` : ''}
       <p class="small muted" style="margin-top:var(--s3)">The ${resumeLabel} PDF shown below is the exact file kept with this application. The Word copy is only an editable backup.</p>
     </div>
 
@@ -461,14 +468,20 @@ function renderApplication(a) {
     </div>
 
     <div class="panel">
-      <div class="panel__head"><h3>${template ? 'The original CV' : 'The AI-tailored CV'}</h3>
-        ${template ? '<span class="pill pill--draft">master copy</span>'
+      <div class="panel__head"><h3>${usingOriginalCv ? 'The original CV' : 'The AI-tailored CV'}</h3>
+        ${usingOriginalCv ? '<span class="pill pill--draft">master copy</span>'
     : '<span class="pill pill--sent">rewritten for this role</span>'}</div>
-      <p class="small muted">${template
-    ? 'Your full original CV, exactly as it is on the Settings page. AI did not edit this copy. The email and covering letter came from the saved local templates.'
+      <p class="small muted">${usingOriginalCv
+    ? (aiPrepared
+      ? 'Your full original CV, exactly as it is on the Settings page. You chose this over the version AI tailored for this role.'
+      : 'Your full original CV, exactly as it is on the Settings page. AI did not edit this copy. The email and covering letter came from the saved local templates.')
     : 'Rewritten for this role. Dates, employers, degrees and the session count are locked to the master CV and cannot be changed by the rewrite.'}</p>
       ${fileRow}
-      ${template ? `<p class="inline-note" style="margin-top:var(--s3)">
+      ${!sent && aiPrepared ? `<div class="row" style="margin-top:var(--s3);flex-wrap:wrap;gap:var(--s3)">
+        <button class="btn btn--ghost btn--sm" id="a-swap-cv">${usingOriginalCv ? 'Use the AI-tailored CV instead' : 'Use my original CV instead'}</button>
+        ${usingOriginalCv && a.files?.aiPdf ? '<button class="btn btn--ghost btn--sm" data-file="open:ai_pdf">Preview the AI-tailored CV</button>' : ''}
+      </div>` : ''}
+      ${!aiPrepared ? `<p class="inline-note" style="margin-top:var(--s3)">
         <a href="#" data-goto="settings">See what a key adds</a> — it is optional, and everything else here works without one.</p>` : ''}
     </div>
 
@@ -550,6 +563,20 @@ function renderApplication(a) {
     e.currentTarget.disabled = false;
   });
 
+  $('#a-swap-cv')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const goingToOriginal = !usingOriginalCv;
+    if (goingToOriginal && !confirmUseOriginalCv(j.company)) return;
+    btn.disabled = true;
+    try {
+      const updated = await call(window.api.apply.switchResume, { id: a.id, choice: goingToOriginal ? 'original' : 'ai' });
+      renderApplication(updated);
+      toast(goingToOriginal ? 'Switched to your original CV. It will be attached and archived when you send.'
+        : 'Switched back to the AI-tailored CV.');
+      if (currentRoute === 'applications') go('applications');
+    } catch (err) { oops(err); btn.disabled = false; }
+  });
+
   $('#a-status')?.addEventListener('change', async (e) => {
     try {
       await call(window.api.apply.setStatus, { id: a.id, status: e.target.value });
@@ -608,6 +635,15 @@ function confirmSend(to, company, resumeLabel) {
   return window.confirm(`Send this application to ${to}${company ? ` at ${company}` : ''} now?\n\n`
     + `The ${resumeLabel || 'CV'} shown in this application will be attached and archived.\n\n`
     + 'It cannot be unsent once it goes.');
+}
+
+function confirmUseOriginalCv(company) {
+  // eslint-disable-next-line no-alert
+  return window.confirm(`Send your original CV instead of the one AI tailored for this role${company ? ` at ${company}` : ''}?\n\n`
+    + 'A broad, one-size CV usually does worse for a specific role: it will not foreground the exact skills and '
+    + 'experience this posting asks for, relevant points can end up buried further down the page, and it can score '
+    + 'lower with any automated screening the employer runs.\n\n'
+    + 'The AI-tailored CV stays saved with this application — you can switch back to it at any time before you send.');
 }
 
 function describeActions(actions) {
@@ -1013,7 +1049,9 @@ VIEWS.applications = async function applications() {
 function appRow(a) {
   const notes = (a.match_notes || []).map((n) => `<li>${esc(n)}</li>`).join('');
   const nextFu = (a.followups || []).find((f) => f.status === 'scheduled');
-  const usedAi = a.mode === 'ai';
+  const cvLabel = a.mode === 'ai'
+    ? (a.resume_choice === 'original' ? 'Original CV (your choice)' : 'AI-tailored CV')
+    : 'Original CV';
   return `<tr>
     <td>
       <div class="t-title">${esc(a.title)}</div>
@@ -1035,7 +1073,7 @@ function appRow(a) {
     </td>
     <td><strong style="font-variant-numeric:tabular-nums">${a.match_score}</strong></td>
     <td><span class="pill pill--${esc(a.status)}">${esc(a.status)}</span>
-      <div class="small muted" style="margin-top:var(--s2)">${usedAi ? 'AI-tailored CV' : 'Original CV'}</div></td>
+      <div class="small muted" style="margin-top:var(--s2)">${esc(cvLabel)}</div></td>
     <td class="small muted">${esc(ago(a.sent_at || a.created_at))}</td>
     <td><button class="btn btn--sm" data-open-app="${a.id}">Open</button></td>
   </tr>`;

@@ -1221,6 +1221,39 @@ group('Making the CV files');
     outageApplication.automation_log.some((e) => e.kind === 'template'
       && e.actions.includes('original_cv') && /All available AI services failed/.test(e.detail)));
 
+  group('Choosing to send the original CV instead of the AI-tailored one');
+  const swapJobId = db.insert('jobs', { fingerprint: 'swap-test-job', title: 'Swap Test Role', company: 'Swap Test Co' });
+  const swapAppId = db.insert('applications', {
+    job_id: swapJobId, status: 'draft', mode: 'ai',
+    resume_json: JSON.stringify({ name: 'AI Tailored Person' }),
+    resume_pdf: 'ai-swap-source.pdf', resume_docx: 'ai-swap-source.docx',
+  });
+  const switched = await applierForArchive.switchResume(swapAppId, 'original');
+  ok('switching to the original CV points the application at a freshly rendered master CV',
+    switched.resume_choice === 'original' && switched.mode === 'ai' && fs.existsSync(switched.files.pdf));
+  ok('the AI-tailored CV is kept, not overwritten',
+    switched.ai_resume_pdf === 'ai-swap-source.pdf' && switched.files.aiPdf.endsWith('ai-swap-source.pdf'));
+  ok('the switch is recorded as the applicant\'s own choice',
+    switched.automation_log.some((e) => e.kind === 'user_choice' && /original CV/.test(e.detail)));
+
+  const switchedBack = await applierForArchive.switchResume(swapAppId, 'ai');
+  ok('switching back restores the AI-tailored CV pointer without regenerating it',
+    switchedBack.resume_choice === '' && switchedBack.resume_pdf === 'ai-swap-source.pdf');
+
+  let noAiError = null;
+  try { await applierForArchive.switchResume(archiveAppId, 'original'); } catch (err) { noAiError = err; }
+  ok('an application that was never AI-tailored refuses to switch',
+    noAiError && /no AI-tailored CV/i.test(noAiError.message));
+
+  const sentJobId = db.insert('jobs', { fingerprint: 'swap-sent-job', title: 'Sent Role', company: 'Sent Co' });
+  const sentAppId = db.insert('applications', {
+    job_id: sentJobId, status: 'sent', mode: 'ai', resume_pdf: 'x.pdf', resume_docx: 'x.docx',
+  });
+  let sentGuardError = null;
+  try { await applierForArchive.switchResume(sentAppId, 'original'); } catch (err) { sentGuardError = err; }
+  ok('a sent application cannot have its CV swapped after the fact',
+    sentGuardError && /already been sent/i.test(sentGuardError.message));
+
   /* The Word file the app just wrote is a real .docx, so reading it back proves
      the importer against genuine Word markup rather than a hand-made sample. */
   group('Reading back a real Word file');

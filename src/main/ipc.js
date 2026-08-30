@@ -169,6 +169,7 @@ function register(ctx) {
   handle('apply:get', ({ id }) => applier.get(id));
   handle('apply:setStatus', ({ id, status }) => applier.setStatus(id, status));
   handle('apply:markSubmitted', ({ id, note }) => applier.markSubmitted(id, note));
+  handle('apply:switchResume', ({ id, choice }) => applier.switchResume(id, choice));
   handle('apply:rails', ({ id }) => {
     const a = applier.get(id);
     return { problems: a ? applier.checkRails(a) : ['Application not found.'], remaining: applier.remainingToday() };
@@ -461,17 +462,26 @@ function register(ctx) {
 
   /* --------------------------------------------------------- files ----- */
 
+  /** 'pdf' | 'docx' pick the attached CV; 'ai_pdf' | 'ai_docx' pick the AI-tailored
+   *  copy kept in reserve after switching an application to the original CV. */
+  const pickFile = (a, which) => {
+    if (which === 'ai_pdf') return a.files.aiPdf;
+    if (which === 'ai_docx') return a.files.aiDocx;
+    return which === 'docx' ? a.files.docx : a.files.pdf;
+  };
+  const isDocx = (which) => which === 'docx' || which === 'ai_docx';
+
   handle('file:open', ({ applicationId, which }) => {
     const a = applier.get(applicationId);
     if (!a) throw new Error('Application not found.');
-    const p = which === 'docx' ? a.files.docx : a.files.pdf;
+    const p = pickFile(a, which);
     if (!p || !fs.existsSync(p)) throw new Error('That file is not on disk any more.');
     return shell.openPath(p);
   });
   handle('file:reveal', ({ applicationId, which }) => {
     const a = applier.get(applicationId);
     if (!a) throw new Error('Application not found.');
-    const p = which === 'docx' ? a.files.docx : a.files.pdf;
+    const p = pickFile(a, which);
     if (!p || !fs.existsSync(p)) throw new Error('That file is not on disk any more.');
     shell.showItemInFolder(p);
     return true;
@@ -479,11 +489,11 @@ function register(ctx) {
   handle('file:saveAs', async ({ applicationId, which }) => {
     const a = applier.get(applicationId);
     if (!a) throw new Error('Application not found.');
-    const from = which === 'docx' ? a.files.docx : a.files.pdf;
+    const from = pickFile(a, which);
     if (!from || !fs.existsSync(from)) throw new Error('That file is not on disk any more.');
     const { canceled, filePath } = await dialog.showSaveDialog(getMainWindow(), {
       defaultPath: path.basename(from),
-      filters: [{ name: which === 'docx' ? 'Word document' : 'PDF', extensions: [which === 'docx' ? 'docx' : 'pdf'] }],
+      filters: [{ name: isDocx(which) ? 'Word document' : 'PDF', extensions: [isDocx(which) ? 'docx' : 'pdf'] }],
     });
     if (canceled || !filePath) return null;
     fs.copyFileSync(from, filePath);

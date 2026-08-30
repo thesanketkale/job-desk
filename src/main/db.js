@@ -98,6 +98,10 @@ CREATE TABLE IF NOT EXISTS applications (
   mode TEXT NOT NULL DEFAULT 'template',   -- 'ai' if a key rewrote it, else 'template'
   automation_log TEXT NOT NULL DEFAULT '[]',
   resume_archived_at TEXT,
+  resume_choice TEXT NOT NULL DEFAULT '',  -- '' | 'original' — deliberately sending the untailored CV
+  ai_resume_json TEXT,
+  ai_resume_pdf  TEXT NOT NULL DEFAULT '',
+  ai_resume_docx TEXT NOT NULL DEFAULT '',
   notes TEXT NOT NULL DEFAULT '',
   attempts INTEGER NOT NULL DEFAULT 0,
   error TEXT,
@@ -172,6 +176,18 @@ function migrate() {
   }
   if (!cols.includes('resume_archived_at')) {
     db.exec('ALTER TABLE applications ADD COLUMN resume_archived_at TEXT');
+  }
+  if (!cols.includes('resume_choice')) {
+    db.exec("ALTER TABLE applications ADD COLUMN resume_choice TEXT NOT NULL DEFAULT ''");
+  }
+  if (!cols.includes('ai_resume_json')) {
+    db.exec('ALTER TABLE applications ADD COLUMN ai_resume_json TEXT');
+  }
+  if (!cols.includes('ai_resume_pdf')) {
+    db.exec("ALTER TABLE applications ADD COLUMN ai_resume_pdf TEXT NOT NULL DEFAULT ''");
+  }
+  if (!cols.includes('ai_resume_docx')) {
+    db.exec("ALTER TABLE applications ADD COLUMN ai_resume_docx TEXT NOT NULL DEFAULT ''");
   }
 
   // Where a keyword came from, so that rebuilding the vocabulary from an updated

@@ -25,6 +25,8 @@ function get(id) {
   a.files = {
     pdf: a.resume_pdf ? path.join(db.paths.resumes, a.resume_pdf) : null,
     docx: a.resume_docx ? path.join(db.paths.resumes, a.resume_docx) : null,
+    aiPdf: a.ai_resume_pdf ? path.join(db.paths.resumes, a.ai_resume_pdf) : null,
+    aiDocx: a.ai_resume_docx ? path.join(db.paths.resumes, a.ai_resume_docx) : null,
   };
   return a;
 }
@@ -91,6 +93,10 @@ async function prepare(jobId, { force = false, runOnline = (action) => action() 
     mode: tailored.mode,
     automation_log: JSON.stringify([{ ...tailored.provenance, at: now() }]),
     resume_archived_at: null,
+    resume_choice: '',
+    ai_resume_json: null,
+    ai_resume_pdf: '',
+    ai_resume_docx: '',
     error: null,
     updated_at: now(),
   };
@@ -161,6 +167,67 @@ function archiveForSubmission(id) {
     updated_at: now(),
   }, 'id = ?', [id]);
   return { application: get(id), pdf: pdfFile.absolute, docx: docxFile?.absolute || null };
+}
+
+/**
+ * Swaps which CV is attached to a not-yet-sent application, between the
+ * AI-tailored draft and the untouched master CV. Switching to 'original'
+ * stashes the AI files (once) in ai_resume_* before overwriting the
+ * attached copy, so the AI-tailored CV is never lost and switching back to
+ * 'ai' just restores those pointers — nothing is regenerated twice.
+ */
+async function switchResume(id, choice) {
+  if (!['original', 'ai'].includes(choice)) throw new Error('Unknown CV choice.');
+  let a = get(id);
+  if (!a) throw new Error('Application not found.');
+  if (SENT_STATES.includes(a.status)) {
+    throw new Error('This one has already been sent — the CV attached to it cannot change now.');
+  }
+  if (a.mode !== 'ai') throw new Error('There is no AI-tailored CV on this application to switch from.');
+  const already = choice === (a.resume_choice === 'original' ? 'original' : 'ai');
+  if (already) return a;
+
+  if (choice === 'original') {
+    if (!a.ai_resume_pdf) {
+      db.update('applications', {
+        ai_resume_json: a.resume_json, ai_resume_pdf: a.resume_pdf, ai_resume_docx: a.resume_docx,
+      }, 'id = ?', [id]);
+    }
+    const cv = master();
+    const stamp = now().replace(/[- :]/g, '').slice(0, 15);
+    const base = `${slug(cv.name, 30)}_${slug(`${a.job.company || 'company'}_${a.job.title}`)}_${stamp}_original`;
+    const pdfPath = path.join(db.paths.resumes, `${base}.pdf`);
+    const docxPath = path.join(db.paths.resumes, `${base}.docx`);
+    await pdf.render(cv, pdfPath);
+    await docx.render(cv, docxPath);
+    db.update('applications', {
+      resume_json: JSON.stringify(cv),
+      resume_pdf: path.basename(pdfPath),
+      resume_docx: path.basename(docxPath),
+      resume_choice: 'original',
+      updated_at: now(),
+    }, 'id = ?', [id]);
+  } else {
+    db.update('applications', {
+      resume_json: a.ai_resume_json,
+      resume_pdf: a.ai_resume_pdf,
+      resume_docx: a.ai_resume_docx,
+      resume_choice: '',
+      updated_at: now(),
+    }, 'id = ?', [id]);
+  }
+
+  a = appendAutomation(id, {
+    kind: 'user_choice',
+    detail: choice === 'original'
+      ? 'Chose to send the original CV instead of the AI-tailored version for this role. '
+        + 'The AI-tailored CV stays saved and can be switched back to at any time before sending.'
+      : 'Switched back to the AI-tailored CV.',
+  });
+  db.logActivity('cv_choice',
+    `${a.job.company} - ${a.job.title}: switched to ${choice === 'original' ? 'the original CV' : 'the AI-tailored CV'}`,
+    { jobId: a.job_id, applicationId: id });
+  return a;
 }
 
 function save(id, fields) {
@@ -305,4 +372,4 @@ function setStatus(id, status) {
 }
 
 module.exports = { prepare, save, send, get, byJob, setStatus, markSubmitted, remainingToday,
-  checkRails, appendAutomation, archiveForSubmission, STATUSES, SENT_STATES };
+  checkRails, appendAutomation, archiveForSubmission, switchResume, STATUSES, SENT_STATES };

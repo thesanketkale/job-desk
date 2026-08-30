@@ -33,6 +33,7 @@ contextBridge.exposeInMainWorld('api', {
     get: call('apply:get'),
     setStatus: call('apply:setStatus'),
     markSubmitted: call('apply:markSubmitted'),
+    switchResume: call('apply:switchResume'),
     rails: call('apply:rails'),
     mode: call('apply:mode'),
   },
