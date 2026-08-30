@@ -16,6 +16,8 @@ const providers = require('./providers');
 
 const SYSTEM = `You are helping a specific, real candidate apply for a specific, real job.
 You rewrite their CV so it speaks to this job, and you draft the email they will send.
+Your goal is a complete, credible, tailored CV that gives this candidate the best
+realistic chance of an interview — not a shortened summary of their career.
 
 The candidate may be of any gender. Nothing in the CV states it and you must not
 guess: write the email in the first person and never use a third-person pronoun
@@ -29,13 +31,38 @@ ABSOLUTE RULES — a violation makes the output unusable:
    match_notes rather than papering over it.
 3. Dates, employer names, degree names, institutions, and the session count are
    frozen. Copy them exactly.
-4. You MAY: reorder sections and bullets, choose which bullets appear, rewrite the
+4. Every employer in the master CV's "experience" array must appear in your
+   "resume.experience" array, using the exact same "id" value the master CV gives
+   it — never invent a new id, merge two master entries into one, or leave an id
+   out. A role that is irrelevant to this job is trimmed down to its single most
+   defensible bullet, never removed outright: an employer entry missing from the
+   CV reads as a career gap, which hurts the candidate far more than one
+   unremarkable line does.
+5. You MAY: reorder bullets within a role, choose which bullets appear, rewrite the
    summary, re-word bullets to mirror the job's own vocabulary, drop irrelevant
-   material, and re-title the competency groupings.
-5. Keep every bullet a true restatement of a master bullet. If you cannot map a
+   bullets, and re-title the competency groupings. Keep the experience entries
+   themselves in the master CV's own order (reverse chronological) — reordering a
+   work history reads as evasive to a recruiter.
+6. Keep every bullet a true restatement of a master bullet. If you cannot map a
    rewritten bullet back to a master bullet, delete it.
-6. British/Indian English. No em dashes in the email. No exclamation marks. Never
+7. "impact" follows the same rule as bullets: trim it to the outcomes most
+   relevant to this role, but never return it empty when the master CV has
+   entries — an empty outcomes section undersells a candidate with real results.
+8. British/Indian English. No em dashes in the email. No exclamation marks. Never
    write "I am excited to" or "I am writing to express my interest".
+
+A tailored CV is not a shortened CV. For a candidate with several roles and years of
+experience, the result should still read as a full career history — close to the
+master CV's own length — with the emphasis shifted toward what this job asks for,
+not the substance cut away. What actually gets someone an interview is a reader
+seeing the whole, real picture of someone who obviously fits, not a thin summary
+that undersells them.
+
+For match_notes and the email, read the job description for its actual stated
+requirements — qualifications, modalities, licensing, client groups, tools,
+schedule — and name the specific ones the master CV genuinely supports. A generic
+"strong fit" is worth less than naming the two or three concrete things that make
+this candidate right for this particular role.
 
 The email must read as though the candidate wrote it in four minutes: specific, warm,
 direct, 120-170 words, one concrete reason they fit this role, and a clear closing line.
@@ -43,7 +70,19 @@ Address a named person only if the job description names one.
 
 Return ONLY a JSON object, no prose, no code fence:
 {
-  "resume": { ...same shape as the master CV JSON, tailored... },
+  "resume": {
+    "name": "", "headline": "",
+    "contact": {"phone": "", "email": "", "linkedin": "", "website": "", "location": ""},
+    "summary": "", "pitch": "",
+    "competencies": {"Group name": ["item", "..."]},
+    "experience": [{"id": "<same id as the matching master CV entry>", "title": "", "org": "",
+                    "location": "", "start": "", "end": "", "bullets": ["..."]}],
+    "impact": ["..."],
+    "education": [ ...copied from the master CV, unchanged... ],
+    "certifications": { ...copied from the master CV, unchanged... },
+    "differentiators": ["..."],
+    "additional": {"Languages": "", "Interests": "", "Availability": ""}
+  },
   "cover_letter": "3-4 short paragraphs, plain text",
   "email_subject": "...",
   "email_body": "plain text email, no subject line, signed off with the candidate name",
@@ -344,10 +383,35 @@ async function listModels(id = budget.providerId(), key = null) {
   } catch { return []; }          // a missing list is not worth failing a save over
 }
 
+/** Employer names carry punctuation and suffixes ("PeakMind.in", "1To1Help.Net",
+ *  "Lighthouse Wellness Group Pvt Ltd") that a model paraphrases freely even while
+ *  keeping the identity clear to a person. Comparing on letters and digits only
+ *  means that paraphrasing doesn't cost the entry its match. */
+const normalizeOrg = (s) => String(s || '').toLowerCase()
+  .replace(/\.(in|net|com|org|io|co)\b/g, '')
+  .replace(/\b(pvt|private|ltd|limited|llp|inc|llc|corp)\b\.?/g, '')
+  .replace(/[^a-z0-9]+/g, '');
+
+function findMasterMatch(job, byId, byOrg) {
+  if (job?.id && byId.has(job.id)) return byId.get(job.id);
+  const norm = normalizeOrg(job?.org);
+  if (!norm) return null;
+  if (byOrg.has(norm)) return byOrg.get(norm);
+  for (const [key, m] of byOrg) {
+    if (key && (key.includes(norm) || norm.includes(key))) return m;
+  }
+  return null;
+}
+
 /**
  * Employers, dates, education and certifications are restored from the master
- * afterwards, whatever came back. Any employment block that cannot be traced to
- * a real one is deleted outright.
+ * afterwards, whatever came back. An invented employer that cannot be traced to
+ * a real one is deleted outright — but a REAL one that the model simply dropped
+ * or renamed past recognition is restored in its original wording rather than
+ * silently vanishing from the CV. Losing a genuine job to a matching failure
+ * used to be indistinguishable from the model correctly leaving out an invented
+ * one; this way the CV can never end up thinner than the truth, only than the
+ * model's best tailoring of it.
  */
 function enforceTruth(master, cv) {
   cv.name = master.name;
@@ -357,18 +421,25 @@ function enforceTruth(master, cv) {
   }
   delete cv.notes_for_tailoring;
 
-  const byId = new Map((master.experience || []).map((m) => [m.id, m]));
-  const byOrg = new Map((master.experience || []).map((m) => [String(m.org || '').toLowerCase(), m]));
+  const masterList = master.experience || [];
+  const byId = new Map(masterList.map((m) => [m.id, m]));
+  const byOrg = new Map(masterList.map((m) => [normalizeOrg(m.org), m]));
 
-  const kept = [];
-  const dropped = [];
+  const tailoredById = new Map();
   for (const job of cv.experience || []) {
-    const m = byId.get(job.id) || byOrg.get(String(job.org || '').toLowerCase());
-    if (!m) { dropped.push(job.org || job.title || 'an unnamed role'); continue; }
-    kept.push({ ...job, id: m.id, org: m.org, start: m.start, end: m.end, location: m.location });
+    const m = findMasterMatch(job, byId, byOrg);
+    if (m) tailoredById.set(m.id, { ...job, id: m.id, org: m.org, start: m.start, end: m.end, location: m.location });
   }
-  cv.experience = kept;
-  return dropped;
+
+  const keptOriginal = [];
+  cv.experience = masterList.map((m) => {
+    const tailored = tailoredById.get(m.id);
+    if (!tailored) keptOriginal.push(m.org || m.title || 'an unnamed role');
+    return tailored || m;
+  });
+  cv.impact = (Array.isArray(cv.impact) && cv.impact.length) ? cv.impact : (master.impact || []);
+
+  return keptOriginal;
 }
 
 /**
@@ -468,11 +539,12 @@ ${jd}`;
         + 'Try that role again, or pick a stronger model in Settings.');
   }
 
-  const dropped = enforceTruth(master, out.resume);
+  const keptOriginal = enforceTruth(master, out.resume);
   settings.set('tailor_count', Number(settings.get('tailor_count', 0)) + 1);
   const notes = (out.match_notes || []).filter(Boolean).map(String);
-  if (dropped.length) {
-    notes.push(`The app removed ${dropped.length} experience entr${dropped.length === 1 ? 'y' : 'ies'} that did not match the master CV.`);
+  if (keptOriginal.length) {
+    notes.push(`${keptOriginal.length} role${keptOriginal.length === 1 ? '' : 's'} `
+      + `${keptOriginal.length === 1 ? 'was' : 'were'} kept in its original wording rather than rewritten for this role.`);
   }
   // The person should know a stand-in answered, same as any other place this
   // app shows what it did rather than doing it silently - not just for

@@ -112,23 +112,46 @@ group('Guarding against invented experience');
 // real master CV is gitignored (see CLAUDE.md) and must never be required by
 // a test, or CI would fail on every checkout.
 const master = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'sample-resume.json'), 'utf8'));
+// Simulates a model that: correctly kept "lighthouse" but garbled its identity,
+// invented a "ghost" employer with no master counterpart, and dropped the other
+// two real roles ("freelance", "harborcare") entirely — the exact failure mode
+// that emptied a real CV's whole experience section in production.
 const tampered = {
   name: 'Someone Else',
   contact: { email: 'attacker@example.com' },
   education: [{ degree: 'PhD Clinical Psychology', school: 'Invented University' }],
+  impact: [],
   experience: [
     { id: 'lighthouse', title: 'Head of Clinical', org: 'Lighthouse Global Inc', start: 'Jan 2018', end: 'Present', bullets: ['x'] },
     { id: 'ghost', title: 'Director', org: 'Fictional Health Ltd', start: '2010', end: '2014', bullets: ['y'] },
   ],
 };
-const dropped = claude.enforceTruth(master, tampered);
-ok('an invented employer is deleted', tampered.experience.length === 1 && dropped.length === 1);
-ok('real dates are restored',
-  tampered.experience[0].start === 'Dec 2019' && tampered.experience[0].end === 'Mar 2023');
-ok('the employer name is restored', tampered.experience[0].org === 'Lighthouse Wellness Group');
+const keptOriginal = claude.enforceTruth(master, tampered);
+ok('an invented employer never appears', !tampered.experience.some((j) => j.id === 'ghost'));
+ok('a role the model dropped is restored rather than lost',
+  tampered.experience.some((j) => j.id === 'freelance') && tampered.experience.some((j) => j.id === 'harborcare'));
+ok('nothing real goes missing: every master role is present', tampered.experience.length === master.experience.length,
+  String(tampered.experience.length));
+ok('restored roles are reported, not silently dropped', keptOriginal.length === 2, String(keptOriginal.length));
+ok('experience stays in the master CV\'s own (reverse-chronological) order',
+  tampered.experience.map((j) => j.id).join(',') === master.experience.map((j) => j.id).join(','));
+ok('real dates are restored on the role the model kept',
+  tampered.experience.find((j) => j.id === 'lighthouse').start === 'Dec 2019'
+    && tampered.experience.find((j) => j.id === 'lighthouse').end === 'Mar 2023');
+ok('the employer name is restored on the role the model kept',
+  tampered.experience.find((j) => j.id === 'lighthouse').org === 'Lighthouse Wellness Group');
 ok('a changed name is restored', tampered.name === 'Alex Rivera');
 ok('changed contact details are restored', tampered.contact.email === 'alex.rivera@example.test');
 ok('an invented degree is deleted', tampered.education[0].school === 'Rivertown State University');
+ok('an emptied outcomes section is restored from the master CV', tampered.impact.length === master.impact.length);
+
+const orgVariants = claude.enforceTruth(JSON.parse(JSON.stringify(master)), {
+  experience: [
+    { id: '', title: 'Lead Counselling Psychologist', org: 'Lighthouse Wellness Group Pvt. Ltd.', start: 'x', end: 'y', bullets: ['rewritten'] },
+  ],
+});
+ok('a differently-punctuated real org name still matches by name when the id is missing',
+  orgVariants.length === 2, String(orgVariants.length));
 ok('json survives a code fence', claude.extractJson('```json\n{"a":1}\n```')?.a === 1);
 ok('json survives surrounding prose', claude.extractJson('here: {"a":2} ok')?.a === 2);
 ok('garbage returns null', claude.extractJson('not json at all') === null);
