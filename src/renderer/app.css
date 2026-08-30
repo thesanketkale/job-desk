@@ -233,7 +233,7 @@ select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,v
 .cards{display:flex; flex-direction:column; gap:var(--s4)}
 
 .card{
-  position:relative; background:var(--surface);
+  position:relative; background:var(--surface); cursor:pointer;
   border:1px solid var(--hair); border-radius:var(--r-lg);
   padding:var(--s5) var(--s5) var(--s4) calc(var(--s5) + var(--s2));
   transition:border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
@@ -311,7 +311,7 @@ select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,v
 }
 .table td{padding:var(--s4); border-bottom:1px solid var(--n100); vertical-align:top; font-size:var(--t-sm)}
 .table tr:last-child td{border-bottom:0}
-.table tbody tr{transition:background var(--dur) var(--ease)}
+.table tbody tr{transition:background var(--dur) var(--ease); cursor:pointer}
 .table tbody tr:hover{background:var(--n50)}
 .table .t-title{font-family:var(--serif); font-size:var(--t-md); color:var(--ink); line-height:1.3}
 

@@ -234,7 +234,7 @@ function jobCard(j) {
       : `<button class="btn btn--primary btn--sm" data-apply="${j.id}">Tailor &amp; apply</button>`;
 
   return `<article class="card${low ? ' card--low' : ''}${applied ? ' card--applied' : ''}"
-      style="--rail-h:${Math.max(14, Math.min(88, j.score))}%">
+      style="--rail-h:${Math.max(14, Math.min(88, j.score))}%" data-view="${j.id}">
     <div class="card__top">
       <div style="flex:1;min-width:0">
         <h3 class="card__title">${esc(j.title)}</h3>
@@ -255,7 +255,6 @@ function jobCard(j) {
     ${j.description_text ? `<p class="card__excerpt">${esc(j.description_text.slice(0, 300))}…</p>` : ''}
     <div class="card__foot">
       ${action}
-      <button class="btn btn--sm" data-view="${j.id}">Read the role</button>
       <span class="spacer"></span>
       <button class="btn btn--ghost btn--sm" data-hide="${j.id}">Not relevant</button>
     </div>
@@ -348,9 +347,9 @@ function wireBoard() {
 
   $('#cards').addEventListener('click', async (e) => {
     const hide = e.target.closest('[data-hide]');
-    const view = e.target.closest('[data-view]');
     const apply = e.target.closest('[data-apply]');
     const openApp = e.target.closest('[data-open-app]');
+    const view = e.target.closest('[data-view]');
 
     if (hide) {
       const card = hide.closest('.card');
@@ -359,9 +358,9 @@ function wireBoard() {
       catch (err) { card.style.opacity = ''; oops(err); }
       return;
     }
-    if (view) return showJob(Number(view.dataset.view));
     if (apply) return startApply(Number(apply.dataset.apply));
     if (openApp) return showApplication(Number(openApp.dataset.openApp));
+    if (view) return showJob(Number(view.dataset.view));
   });
 }
 
@@ -623,7 +622,8 @@ function renderApplication(a) {
       if (currentRoute === 'board') loadBoard(false);
       if (currentRoute === 'applications') go('applications');
     } catch (err) {
-      oops(err);
+      if (/settings/i.test(err.message)) window.alert(err.message);
+      else oops(err);
       btn.disabled = false;
       btn.textContent = 'Send it now';
     }
@@ -1039,7 +1039,7 @@ VIEWS.applications = async function applications() {
         s[0].toUpperCase() + s.slice(1)} (${c[s]})</button>`).join('');
 
   $('#app-list').innerHTML = d.rows.length ? `<table class="table">
-      <thead><tr><th>Role</th><th>Where it went</th><th>Match</th><th>Status</th><th>When</th><th></th></tr></thead>
+      <thead><tr><th>Role</th><th>Where it went</th><th>Match</th><th>Status</th><th>When</th></tr></thead>
       <tbody>${d.rows.map(appRow).join('')}</tbody></table>`
     : `<div class="empty"><h3>Nothing here yet</h3>
         <p>When you apply from the board, the tailored CV, the email that went out, and where it stands all land here.</p>
@@ -1052,7 +1052,7 @@ function appRow(a) {
   const cvLabel = a.mode === 'ai'
     ? (a.resume_choice === 'original' ? 'Original CV (your choice)' : 'AI-tailored CV')
     : 'Original CV';
-  return `<tr>
+  return `<tr data-open-app="${a.id}">
     <td>
       <div class="t-title">${esc(a.title)}</div>
       <div class="rowline small muted" style="margin-top:var(--s2)">
@@ -1075,7 +1075,6 @@ function appRow(a) {
     <td><span class="pill pill--${esc(a.status)}">${esc(a.status)}</span>
       <div class="small muted" style="margin-top:var(--s2)">${esc(cvLabel)}</div></td>
     <td class="small muted">${esc(ago(a.sent_at || a.created_at))}</td>
-    <td><button class="btn btn--sm" data-open-app="${a.id}">Open</button></td>
   </tr>`;
 }
 
@@ -1093,8 +1092,9 @@ function wireApplications() {
     t = setTimeout(() => go('applications'), 240);
   });
   $('#app-list').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-open-app]');
-    if (b) showApplication(Number(b.dataset.openApp));
+    if (e.target.closest('details')) return;
+    const row = e.target.closest('[data-open-app]');
+    if (row) showApplication(Number(row.dataset.openApp));
   });
   window.api.onApplicationsChanged(() => {
     if (currentRoute === 'applications') go('applications');
