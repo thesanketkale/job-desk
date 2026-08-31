@@ -1,7 +1,7 @@
 {
   "name": "jobdesk",
   "productName": "Job Desk",
-  "version": "1.2.17",
+  "version": "1.2.18",
   "description": "A private, local-first job board and application desk.",
   "author": {
     "name": "thesanketkale"
@@ -48,7 +48,10 @@
       "!**/*.map"
     ],
     "extraResources": [
-      { "from": "resources/jobdesk-signing.cer", "to": "jobdesk-signing.cer" }
+      {
+        "from": "resources/jobdesk-signing.cer",
+        "to": "jobdesk-signing.cer"
+      }
     ],
     "win": {
       "target": [
