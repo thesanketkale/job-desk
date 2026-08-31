@@ -200,6 +200,92 @@ const UPDATE_ICON = {
     + '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>',
 };
 
+/** Illustrations, not screenshots: small mock-ups of the two Windows dialogs
+ *  involved, built from the app's own CSS tokens rather than captured OS
+ *  chrome (which varies by Windows version and would go stale). Good enough
+ *  to pattern-match against the real thing by shape and by the exact button
+ *  wording, which is what actually matters. */
+function certificateGuideHtml({ version, onRetry }) {
+  return `
+    <div class="setup">
+      <div class="setup__step">
+        <span class="setup__num">1</span>
+        <div>
+          <h4>Open the certificate</h4>
+          <p>Windows will show its own certificate dialog, warning that it is not trusted yet —
+            that is expected.</p>
+          <button class="btn btn--primary btn--sm" id="cert-guide-open" style="margin-top:var(--s3)">
+            Open jobdesk-signing.cer</button>
+          <div class="cert-mock" style="margin-top:var(--s3)">
+            <div class="cert-mock__bar">Certificate</div>
+            <div class="cert-mock__body">
+              <p><b>⛔ This CA Root certificate is not trusted.</b></p>
+              <p class="small muted" style="margin:0">Issued to: Job Desk · Issued by: Job Desk</p>
+              <div class="cert-mock__row">
+                <span class="cert-mock__btn cert-mock__btn--hi">Install Certificate…</span>
+                <span class="cert-mock__btn">OK</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="setup__step">
+        <span class="setup__num">2</span>
+        <div>
+          <h4>Install it to Trusted Root</h4>
+          <ol class="small" style="margin:var(--s2) 0 0;padding-left:1.2em;display:flex;flex-direction:column;gap:var(--s2)">
+            <li>Choose <b>Local Machine</b>, then Next — approve the Windows prompt that follows, that
+              is expected</li>
+            <li><b>Place all certificates in the following store</b> → Browse… → <b>Trusted Root
+              Certification Authorities</b> → OK</li>
+            <li>Next → <b>Finish</b> → OK</li>
+          </ol>
+          <div class="cert-mock" style="margin-top:var(--s3)">
+            <div class="cert-mock__bar">Certificate Import Wizard</div>
+            <div class="cert-mock__body">
+              <p class="small" style="margin:0">○ Automatically select the certificate store</p>
+              <p class="small" style="margin:var(--s1) 0 0"><b>● Place all certificates in the
+                following store</b></p>
+              <div class="cert-mock__field">Trusted Root Certification Authorities</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="setup__step">
+        <span class="setup__num">3</span>
+        <div>
+          <h4>${onRetry ? 'Try the download again' : 'Nothing else to do'}</h4>
+          <p>This is a one-time step. Once the certificate is trusted, every update after this
+            one — including ones that fix other problems — installs on its own.</p>
+          ${onRetry
+      ? `<button class="btn btn--primary btn--sm" id="cert-guide-retry" style="margin-top:var(--s3)">
+              Download ${esc(version)} again</button>`
+      : ''}
+        </div>
+      </div>
+    </div>`;
+}
+
+/** Reachable two ways: automatically when a download fails on an untrusted
+ *  certificate (onRetry set, so step 3 can try again), or by hand from
+ *  Settings for someone fixing this before ever hitting the error (no
+ *  onRetry — nothing pending to retry). */
+function openCertificateGuide({ version = '', onRetry = null } = {}) {
+  openDrawer('The update needs one thing trusted', 'A one-time step on this computer — see GUIDE.md for the same steps in writing.');
+  $('#drawer-body').innerHTML = certificateGuideHtml({ version, onRetry });
+  $('#drawer-foot').innerHTML = '';
+  $('#cert-guide-open').addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    b.disabled = true;
+    try { await call(window.api.app.openCertificate, {}); }
+    catch (err) { oops(err); }
+    b.disabled = false;
+  });
+  $('#cert-guide-retry')?.addEventListener('click', () => { closeDrawer(); onRetry(); });
+}
+
 /** The bottom-right corner panel: available → download → downloading →
  *  downloaded → install. No centred dialogs anywhere in this flow. */
 function wireUpdatePanel() {
@@ -244,13 +330,22 @@ function wireUpdatePanel() {
   window.api.app.onUpdateError(() => { if (state === 'downloading') { state = ''; render(); } });
   window.api.app.onUpdateChecked(({ message }) => { if (message) toast(message); });
 
+  const attemptDownload = async () => {
+    state = 'downloading';
+    bar.firstElementChild.style.width = '0%';
+    render();
+    try { await call(window.api.app.downloadUpdate, {}); }
+    catch (err) {
+      state = 'available';
+      render();
+      if (err.code === 'ERR_UPDATER_INVALID_SIGNATURE') openCertificateGuide({ version, onRetry: attemptDownload });
+      else oops(err);
+    }
+  };
+
   btn.addEventListener('click', async () => {
     if (state === 'available') {
-      state = 'downloading';
-      bar.firstElementChild.style.width = '0%';
-      render();
-      try { await call(window.api.app.downloadUpdate, {}); }
-      catch (err) { state = 'available'; render(); oops(err); }
+      await attemptDownload();
     } else if (state === 'downloaded') {
       state = 'installing';
       render();
@@ -1824,6 +1919,7 @@ VIEWS.settings = async function settingsView() {
         <button class="btn btn--sm" id="s-folder">Open that folder</button>
         <button class="btn btn--sm" id="s-backup">Back everything up now</button>
         <button class="btn btn--sm" id="s-update">Check for updates</button>
+        <button class="btn btn--ghost btn--sm" id="s-trust-cert">Trust the update certificate</button>
         <span class="spacer"></span>
         <span class="small muted">Job Desk ${esc(s.version)}</span>
       </div>
@@ -2158,6 +2254,7 @@ VIEWS.settings = async function settingsView() {
     btn.disabled = false;
     btn.textContent = 'Check for updates';
   });
+  $('#s-trust-cert').addEventListener('click', () => openCertificateGuide());
   $('#s-gh-pat-save')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     const v = $('#s-gh-pat').value.trim();

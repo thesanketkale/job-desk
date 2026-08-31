@@ -628,6 +628,11 @@ function register(ctx) {
   }));
   handle('app:downloadUpdate', () => updater.downloadUpdate(), { internet: true });
   handle('app:installUpdate', () => { updater.installUpdate(); return true; });
+  handle('app:openCertificate', () => {
+    const p = updater.certificatePath();
+    if (!p) throw new Error('The certificate file is missing from this install. Ask Sanket for a fresh copy.');
+    return shell.openPath(p);
+  });
 }
 
 module.exports = { register };

@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('api', {
     updateStatus: call('app:updateStatus'),
     downloadUpdate: call('app:downloadUpdate'),
     installUpdate: call('app:installUpdate'),
+    openCertificate: call('app:openCertificate'),
     onUpdateAvailable: (fn) => on('app:updateAvailable', fn),
     onUpdateProgress: (fn) => on('app:updateProgress', fn),
     onUpdateDownloaded: (fn) => on('app:updateDownloaded', fn),

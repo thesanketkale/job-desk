@@ -24,6 +24,8 @@
  * auth needed) or a `generic` static-host channel. `channel: 'off'` in
  * `package.json`'s `updates` block is the only way to switch it off outright.
  */
+const path = require('node:path');
+const fs = require('node:fs');
 const { app, shell } = require('electron');
 const settings = require('./settings');
 const network = require('./network');
@@ -134,7 +136,7 @@ function init(getWindow) {
     // no token yet reads as "needs a token" instead of quietly never updating.
     const message = friendlyUpdateError(err);
     lastCheck = { at: new Date().toISOString(), ok: false, message };
-    send('app:updateError', { message });
+    send('app:updateError', { message, code: err?.code || '' });
     require('./db').logActivity('update_error', String(err?.message || err).slice(0, 200));
   });
 
@@ -156,9 +158,23 @@ async function downloadUpdate() {
   } catch (err) {
     const message = friendlyUpdateError(err);
     lastCheck = { at: new Date().toISOString(), ok: false, message };
-    throw new Error(message);
+    const friendly = new Error(message);
+    friendly.code = err?.code || '';
+    throw friendly;
   }
   return true;
+}
+
+/** The public cert's actual on-disk location — a real file, not inside
+ *  app.asar, so shell.openPath() (an OS-level open, not Node's fs) can open
+ *  it. extraResources in package.json copies it there for a packaged build;
+ *  a dev checkout just reads it straight from resources/. Null if genuinely
+ *  missing, so the caller can say so instead of failing silently. */
+function certificatePath() {
+  const packaged = path.join(process.resourcesPath, 'jobdesk-signing.cer');
+  if (fs.existsSync(packaged)) return packaged;
+  const dev = path.join(__dirname, '../../resources/jobdesk-signing.cer');
+  return fs.existsSync(dev) ? dev : null;
 }
 
 /** The corner panel's install button — installs and reopens right away, no
@@ -268,5 +284,5 @@ async function checkNow() {
   }
 }
 
-module.exports = { init, checkNow, downloadUpdate, installUpdate, enabled, config, hasToken, applyFeed,
-  friendlyUpdateError, githubTarget, get lastCheck() { return lastCheck; } };
+module.exports = { init, checkNow, downloadUpdate, installUpdate, certificatePath, enabled, config, hasToken,
+  applyFeed, friendlyUpdateError, githubTarget, get lastCheck() { return lastCheck; } };

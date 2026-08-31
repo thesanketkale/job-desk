@@ -471,6 +471,22 @@ select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,v
 .progress{height:3px; background:var(--n100); border-radius:2px; overflow:hidden}
 .progress i{display:block; height:100%; background:var(--accent); transition:width 260ms var(--ease)}
 
+/* Small illustrations of the two Windows dialogs in the certificate-trust
+   guide — built from tokens, not captured OS chrome, so they never go stale. */
+.cert-mock{max-width:360px; border:1px solid var(--n300); border-radius:var(--r-md); overflow:hidden}
+.cert-mock__bar{padding:var(--s2) var(--s3); background:var(--n100); border-bottom:1px solid var(--n200);
+  font-size:var(--t-xs); font-weight:600; color:var(--muted)}
+.cert-mock__body{padding:var(--s3); background:var(--surface)}
+.cert-mock__body p{margin:0 0 var(--s2); color:var(--ink); font-size:var(--t-sm)}
+.cert-mock__row{display:flex; justify-content:flex-end; gap:var(--s2); margin-top:var(--s3)}
+.cert-mock__btn{padding:var(--s1) var(--s3); border:1px solid var(--n300); border-radius:var(--r-sm);
+  font-size:var(--t-xs); color:var(--muted); background:var(--n50)}
+.cert-mock__btn--hi{border-color:var(--accent); background:var(--accent); color:#fff; font-weight:600;
+  box-shadow:0 0 0 3px var(--accent-tint)}
+.cert-mock__field{margin-top:var(--s2); padding:var(--s2) var(--s3); border:1px solid var(--accent-line);
+  border-radius:var(--r-sm); background:var(--accent-tint); color:var(--accent-deep); font-size:var(--t-xs);
+  font-weight:600}
+
 .split{display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:var(--s6); align-items:start}
 @media (max-width:1080px){ .split{grid-template-columns:minmax(0,1fr)} }
 

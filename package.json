@@ -47,6 +47,9 @@
       "package.json",
       "!**/*.map"
     ],
+    "extraResources": [
+      { "from": "resources/jobdesk-signing.cer", "to": "jobdesk-signing.cer" }
+    ],
     "win": {
       "target": [
         {
