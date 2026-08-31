@@ -367,6 +367,10 @@ select{appearance:none; background-image:linear-gradient(45deg,transparent 50%,v
 .notes li.warn{color:var(--clay)}
 .notes li.warn::before{background:var(--clay)}
 
+/* ---------------- confirm modal ---------------- */
+.confirm-modal{max-width:min(420px,90vw); box-shadow:var(--shadow-3); border:1px solid var(--hair)}
+.confirm-modal::backdrop{background:rgba(22,22,15,.34); backdrop-filter:blur(2px)}
+
 /* ---------------- misc ---------------- */
 .flash{padding:var(--s3) var(--s4); border-radius:var(--r-md); font-size:var(--t-sm); margin-bottom:var(--s4)}
 .flash--ok{background:var(--accent-tint); color:var(--accent-deep); border:1px solid var(--accent-line)}

@@ -86,6 +86,14 @@ function closeDrawer() {
 }
 $('#scrim').addEventListener('click', closeDrawer);
 $('#drawer-close').addEventListener('click', closeDrawer);
+
+/** A settings-shaped send failure gets this instead of a bare alert — "Let's do it" is wired via data-goto. */
+function promptMailSettings(message) {
+  $('#mail-settings-modal-msg').textContent = message;
+  $('#mail-settings-modal').showModal();
+}
+$('#mail-settings-modal-cancel').addEventListener('click', () => $('#mail-settings-modal').close());
+$('#mail-settings-modal-go').addEventListener('click', () => $('#mail-settings-modal').close());
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && $('#drawer').hasAttribute('data-open')) closeDrawer();
 });
@@ -668,6 +676,13 @@ function renderApplication(a) {
     } catch (err) { oops(err); }
   });
 
+  $('#a-to')?.addEventListener('input', () => {
+    const btn = $('#a-send');
+    if (!btn) return;
+    if ($('#a-to').value.trim()) { btn.removeAttribute('aria-disabled'); btn.removeAttribute('title'); }
+    else { btn.setAttribute('aria-disabled', 'true'); btn.title = 'No address was published for this role'; }
+  });
+
   $('#a-send')?.addEventListener('click', async (e) => {
     const btn = e.currentTarget;
     if (btn.getAttribute('aria-disabled') === 'true') return;
@@ -695,7 +710,7 @@ function renderApplication(a) {
       if (currentRoute === 'board') loadBoard(false);
       if (currentRoute === 'applications') go('applications');
     } catch (err) {
-      if (/settings/i.test(err.message)) window.alert(err.message);
+      if (/settings/i.test(err.message)) promptMailSettings(err.message);
       else oops(err);
       btn.disabled = false;
       btn.textContent = 'Send it now';

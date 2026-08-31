@@ -363,6 +363,14 @@
   <footer class="drawer__foot" id="drawer-foot"></footer>
 </section>
 
+<dialog class="panel confirm-modal" id="mail-settings-modal">
+  <p id="mail-settings-modal-msg"></p>
+  <div class="row" style="justify-content:flex-end;gap:var(--s3);margin-top:var(--s4)">
+    <button class="btn btn--ghost" id="mail-settings-modal-cancel">Not now</button>
+    <button class="btn btn--primary" id="mail-settings-modal-go" data-goto="settings">Let's do it</button>
+  </div>
+</dialog>
+
 <div class="toast-stack" id="toasts"></div>
 
 <div class="update-panel hidden" id="update-panel">
