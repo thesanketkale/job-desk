@@ -164,7 +164,9 @@ function render(cv, outPath) {
         const dw = doc.widthOfString(dates);
         doc.font('Helvetica-Bold').fontSize(10.2).fillColor(INK)
           .text(head, L, y, { width: W - dw - 14 });
+        const afterHead = doc.y;
         doc.font('Helvetica').fontSize(8.6).fillColor(MUTED).text(dates, R - dw, y + 1.5, { width: dw });
+        doc.y = Math.max(doc.y, afterHead);
         if (job.location) {
           doc.font('Helvetica-Oblique').fontSize(8.4).fillColor(MUTED)
             .text(flat(job.location), L, doc.y, { width: W });
@@ -189,7 +191,9 @@ function render(cv, outPath) {
         const yw = doc.widthOfString(ed.years || '');
         doc.font('Helvetica-Bold').fontSize(9.8).fillColor(INK)
           .text(ed.degree || '', L, y, { width: W - yw - 12 });
+        const afterDegree = doc.y;
         doc.font('Helvetica').fontSize(8.6).fillColor(MUTED).text(ed.years || '', R - yw, y + 1, { width: yw });
+        doc.y = Math.max(doc.y, afterDegree);
         doc.font('Helvetica').fontSize(9).fillColor(BODY).text(ed.school || '', L, doc.y, { width: W });
         if (ed.detail) {
           doc.font('Helvetica-Oblique').fontSize(8.5).fillColor(MUTED)
