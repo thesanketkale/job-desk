@@ -144,10 +144,20 @@ function init(getWindow) {
   return { enabled: true, channel: cfg.channel };
 }
 
-/** The corner panel's download button. */
+/** The corner panel's download button. A raw electron-updater failure here
+ *  (network drop, bad token, an unverifiable signature) used to reach the
+ *  renderer's toast untranslated — for a signature failure that means the
+ *  entire dumped certificate JSON, not a sentence. Same friendly mapping the
+ *  background check already gets. */
 async function downloadUpdate() {
   if (!autoUpdater) throw new Error('Updates are not available in this build.');
-  await autoUpdater.downloadUpdate();
+  try {
+    await autoUpdater.downloadUpdate();
+  } catch (err) {
+    const message = friendlyUpdateError(err);
+    lastCheck = { at: new Date().toISOString(), ok: false, message };
+    throw new Error(message);
+  }
   return true;
 }
 
@@ -174,6 +184,17 @@ function installUpdate() {
  */
 function friendlyUpdateError(err) {
   const m = String(err?.message || err);
+  // electron-updater's own PowerShell Authenticode check embeds the entire
+  // raw Get-AuthenticodeSignature result — every certificate field it has —
+  // into this error's message when the chain does not validate to a trusted
+  // root, which a self-signed certificate never does until its .cer is
+  // imported on that machine. Checked by code, not a regex, so none of that
+  // dumped JSON can accidentally match a different branch below.
+  if (err?.code === 'ERR_UPDATER_INVALID_SIGNATURE') {
+    return "This download could not be verified against Job Desk's signing certificate — it "
+      + "is not trusted on this computer yet. Double-click jobdesk-signing.cer and add it to "
+      + "Trusted Root Certification Authorities (see GUIDE.md's 'Installing it'), then try again.";
+  }
   if (/401|403|bad credentials|invalid.*token|expired.*token/i.test(m)) {
     return 'That GitHub token was rejected — it may be wrong, expired, or revoked. Check it in Settings.';
   }
