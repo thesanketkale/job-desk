@@ -1688,45 +1688,61 @@ VIEWS.settings = async function settingsView() {
         <input type="text" id="s-salary" value="${esc(s.profile_expected_salary || '')}" placeholder="Leave empty to skip the question"></label>
     </section>
 
-    <section class="panel">
+    <section class="panel" style="grid-column:1/-1">
       <div class="panel__head"><h3>Job sites that need a key</h3></div>
-      <p class="small muted">Adzuna is free and is where most of the Indian listings come from. Without
-        it the board leans heavily towards remote-first companies abroad.
-        Sign up at <a href="#" data-external="https://developer.adzuna.com/">developer.adzuna.com</a>.</p>
-      <div class="row" style="margin-top:var(--s4);gap:var(--s3)">
-        <label class="field" style="flex:1"><span>App ID</span>
-          <input type="text" id="s-adz-id" placeholder="${s.has_adzuna ? '•••• (saved)' : ''}" autocomplete="off"></label>
-        <label class="field" style="flex:1"><span>App key</span>
-          <input type="password" id="s-adz-key" placeholder="${s.has_adzuna ? '•••• (saved)' : ''}" autocomplete="off"></label>
+      <div class="grid-3" style="margin-top:var(--s4)">
+        <div>
+          <p class="small muted">Adzuna is free and is where most of the Indian listings come from. Without
+            it the board leans heavily towards remote-first companies abroad.
+            Sign up at <a href="#" data-external="https://developer.adzuna.com/">developer.adzuna.com</a>.</p>
+          <div class="row" style="margin-top:var(--s4);gap:var(--s3);flex-wrap:wrap">
+            <label class="field" style="flex:1;min-width:110px"><span>App ID</span>
+              <input type="text" id="s-adz-id" placeholder="${s.has_adzuna ? '•••• (saved)' : ''}" autocomplete="off"></label>
+            <label class="field" style="flex:1;min-width:110px"><span>App key</span>
+              <input type="password" id="s-adz-key" placeholder="${s.has_adzuna ? '•••• (saved)' : ''}" autocomplete="off"></label>
+          </div>
+          <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-adz-save">Save the Adzuna keys</button>
+        </div>
+
+        <div>
+          <p class="small muted">Jooble is a second, free index of the same Indian
+            market — a different set of boards to Adzuna's, so it fills in what Adzuna misses.
+            Sign up at <a href="#" data-external="https://jooble.org/api/about">jooble.org/api/about</a>.</p>
+          <label class="field" style="margin-top:var(--s4)"><span>Jooble API key</span>
+            <input type="password" id="s-joo-key" placeholder="${s.has_jooble ? '•••• (saved)' : ''}" autocomplete="off"></label>
+          <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-joo-save">Save the Jooble key</button>
+        </div>
+
+        <div>
+          <p class="small muted">JSearch resells Google for Jobs, whose index
+            includes postings that originate on LinkedIn and Indeed — this is the licensed route to those
+            listings; crawling those sites directly is not, and both forbid it. Its free tier is small, so it
+            is used sparingly. Sign up at <a href="#" data-external="https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch">rapidapi.com</a>.</p>
+          <label class="field" style="margin-top:var(--s4)"><span>JSearch (RapidAPI) key</span>
+            <input type="password" id="s-jse-key" placeholder="${s.has_jsearch ? '•••• (saved)' : ''}" autocomplete="off"></label>
+          <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-jse-save">Save the JSearch key</button>
+        </div>
+
+        <div>
+          <p class="small muted">Active Jobs DB aggregates postings straight from
+            companies' own applicant-tracking systems (Workday, SuccessFactors, Zoho and others) across
+            200,000+ career sites — a real, high-signal source and free. Search "Active Jobs DB" on
+            <a href="#" data-external="https://rapidapi.com/hub">rapidapi.com</a> to get a key.</p>
+          <label class="field" style="margin-top:var(--s4)"><span>Active Jobs DB (RapidAPI) key</span>
+            <input type="password" id="s-ajd-key" placeholder="${s.has_activejobsdb ? '•••• (saved)' : ''}" autocomplete="off"></label>
+          <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-ajd-save">Save the Active Jobs DB key</button>
+        </div>
+
+        <div>
+          <p class="small muted">Free Y Combinator Jobs API mirrors YC's own Work
+            at a Startup board — mostly outside India, but worth having on for the occasional remote role.
+            Free. Search "Free Y Combinator Jobs API" on
+            <a href="#" data-external="https://rapidapi.com/hub">rapidapi.com</a> to get a key.</p>
+          <label class="field" style="margin-top:var(--s4)"><span>Y Combinator Jobs (RapidAPI) key</span>
+            <input type="password" id="s-ycj-key" placeholder="${s.has_ycjobs ? '•••• (saved)' : ''}" autocomplete="off"></label>
+          <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-ycj-save">Save the Y Combinator key</button>
+        </div>
       </div>
-      <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-adz-save">Save the Adzuna keys</button>
-      <p class="small muted" style="margin-top:var(--s4)">Jooble is a second, free index of the same Indian
-        market — a different set of boards to Adzuna's, so it fills in what Adzuna misses.
-        Sign up at <a href="#" data-external="https://jooble.org/api/about">jooble.org/api/about</a>.</p>
-      <label class="field" style="margin-top:var(--s3)"><span>Jooble API key</span>
-        <input type="password" id="s-joo-key" placeholder="${s.has_jooble ? '•••• (saved)' : ''}" autocomplete="off"></label>
-      <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-joo-save">Save the Jooble key</button>
-      <p class="small muted" style="margin-top:var(--s4)">JSearch resells Google for Jobs, whose index
-        includes postings that originate on LinkedIn and Indeed — this is the licensed route to those
-        listings; crawling those sites directly is not, and both forbid it. Its free tier is small, so it
-        is used sparingly. Sign up at <a href="#" data-external="https://rapidapi.com/letscrape-6bRBa3QguO5/api/jsearch">rapidapi.com</a>.</p>
-      <label class="field" style="margin-top:var(--s3)"><span>JSearch (RapidAPI) key</span>
-        <input type="password" id="s-jse-key" placeholder="${s.has_jsearch ? '•••• (saved)' : ''}" autocomplete="off"></label>
-      <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-jse-save">Save the JSearch key</button>
-      <p class="small muted" style="margin-top:var(--s4)">Active Jobs DB aggregates postings straight from
-        companies' own applicant-tracking systems (Workday, SuccessFactors, Zoho and others) across
-        200,000+ career sites — a real, high-signal source and free. Search "Active Jobs DB" on
-        <a href="#" data-external="https://rapidapi.com/hub">rapidapi.com</a> to get a key.</p>
-      <label class="field" style="margin-top:var(--s3)"><span>Active Jobs DB (RapidAPI) key</span>
-        <input type="password" id="s-ajd-key" placeholder="${s.has_activejobsdb ? '•••• (saved)' : ''}" autocomplete="off"></label>
-      <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-ajd-save">Save the Active Jobs DB key</button>
-      <p class="small muted" style="margin-top:var(--s4)">Free Y Combinator Jobs API mirrors YC's own Work
-        at a Startup board — mostly outside India, but worth having on for the occasional remote role.
-        Free. Search "Free Y Combinator Jobs API" on
-        <a href="#" data-external="https://rapidapi.com/hub">rapidapi.com</a> to get a key.</p>
-      <label class="field" style="margin-top:var(--s3)"><span>Y Combinator Jobs (RapidAPI) key</span>
-        <input type="password" id="s-ycj-key" placeholder="${s.has_ycjobs ? '•••• (saved)' : ''}" autocomplete="off"></label>
-      <button class="btn btn--primary btn--sm" style="margin-top:var(--s3)" id="s-ycj-save">Save the Y Combinator key</button>
     </section>
 
     <section class="panel" style="grid-column:1/-1">
