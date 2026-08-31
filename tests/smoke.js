@@ -1156,11 +1156,13 @@ group('Making the CV files');
   }, {
     onlineCheck: () => ++availabilityChecks > 1,
     ask: async () => { retryPrompts++; return 'retry'; },
+    autoRetries: 0, retryDelayMs: 0,
   });
   ok('Retry checks connectivity again and runs the original action',
     retriedResult === 'completed' && availabilityChecks === 2 && actionRuns === 1 && retryPrompts === 1);
 
   let failedActionRuns = 0;
+  let silentRetryPrompts = 0;
   const replayedResult = await network.runWithInternet(async () => {
     failedActionRuns++;
     if (failedActionRuns === 1) {
@@ -1171,10 +1173,27 @@ group('Making the CV files');
     return 'replayed';
   }, {
     onlineCheck: () => true,
-    ask: async () => 'retry',
+    ask: async () => { silentRetryPrompts++; return 'retry'; },
+    retryDelayMs: 0,
   });
-  ok('Retry replays an action that failed during its network request',
-    replayedResult === 'replayed' && failedActionRuns === 2);
+  ok('A blip is retried silently — no popup for a single failed attempt',
+    replayedResult === 'replayed' && failedActionRuns === 2 && silentRetryPrompts === 0);
+
+  let stillDownActionRuns = 0;
+  let stillDownChecks = 0;
+  let stillDownPrompted = false;
+  const stillDownResult = await network.runWithInternet(async () => {
+    stillDownActionRuns++;
+    const error = new Error('socket closed');
+    error.code = 'ECONNRESET';
+    throw error;
+  }, {
+    onlineCheck: () => true,
+    autoRetries: 2, retryDelayMs: 0,
+    ask: async () => { stillDownPrompted = true; stillDownChecks = stillDownActionRuns; return 'cancel'; },
+  }).catch((error) => error);
+  ok('The popup only appears once every automatic attempt has failed',
+    stillDownPrompted && stillDownChecks === 3 && stillDownResult?.popupShown === true);
 
   let cancelledActionRuns = 0;
   let cancelledError = null;
@@ -1182,6 +1201,7 @@ group('Making the CV files');
     await network.runWithInternet(async () => { cancelledActionRuns++; }, {
       onlineCheck: () => false,
       ask: async () => 'cancel',
+      retryDelayMs: 0,
     });
   } catch (error) { cancelledError = error; }
   ok('Cancel leaves the original action untouched and suppresses duplicate errors',

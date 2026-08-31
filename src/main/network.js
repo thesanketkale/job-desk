@@ -34,6 +34,14 @@ const TRANSPORT_MESSAGE = /fetch failed|network error|network socket|socket hang
 
 let connectivityDialog = null;
 
+// A blip — a dropped packet, a DNS hiccup, a VPN reconnect — usually clears
+// within a couple of seconds. Asking the person to click Retry for that is
+// worse than just trying again ourselves; the popup is for when it's still
+// down after several real attempts, not the first stumble.
+const AUTO_RETRY_ATTEMPTS = 4;
+const AUTO_RETRY_DELAY_MS = 1500;
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /**
  * Reads Electron's system connectivity signal.
  * @return True when a network route may be available, as a Boolean.
@@ -143,18 +151,25 @@ async function showInternetError(parent, error) {
 async function runWithInternet(action, options = {}) {
   const onlineCheck = options.onlineCheck || systemIsOnline;
   const ask = options.ask || showInternetError;
+  const autoRetries = options.autoRetries ?? AUTO_RETRY_ATTEMPTS;
+  const retryDelayMs = options.retryDelayMs ?? AUTO_RETRY_DELAY_MS;
   while (true) {
-    try {
-      requireInternet(onlineCheck);
-      return await action();
-    } catch (error) {
-      const shownError = normaliseInternetError(error);
-      if (shownError?.code !== INTERNET_ERROR_CODE || options.popup === false) throw shownError;
-      const decision = await ask(options.parent || null, shownError);
-      if (decision === 'retry') continue;
-      shownError.popupShown = decision === 'cancel';
-      throw shownError;
+    let shownError = null;
+    for (let attempt = 0; attempt <= autoRetries; attempt++) {
+      try {
+        requireInternet(onlineCheck);
+        return await action();
+      } catch (error) {
+        shownError = normaliseInternetError(error);
+        if (shownError?.code !== INTERNET_ERROR_CODE) throw shownError;
+        if (attempt < autoRetries) await wait(retryDelayMs);
+      }
     }
+    if (options.popup === false) throw shownError;
+    const decision = await ask(options.parent || null, shownError);
+    if (decision === 'retry') continue;
+    shownError.popupShown = decision === 'cancel';
+    throw shownError;
   }
 }
 
