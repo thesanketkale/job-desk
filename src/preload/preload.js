@@ -63,7 +63,6 @@ contextBridge.exposeInMainWorld('api', {
   ai: {
     providers: call('ai:providers'),
     setProvider: call('ai:setProvider'),
-    setModel: call('ai:setModel'),
   },
   sources: {
     list: call('sources:list'),

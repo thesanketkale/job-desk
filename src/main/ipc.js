@@ -389,12 +389,6 @@ function register(ctx) {
     return { provider: budget.providerId(), model: budget.model(), aiEnabled: ai.available() };
   });
 
-  handle('ai:setModel', ({ model }) => {
-    const id = budget.providerId();
-    settings.set('ai_model', String(model || ''));
-    settings.set('ai_model_custom', !!model && !providers.get(id).models[model]);
-    return { model: budget.model() };
-  });
   handle('settings:sendTestEmail', async ({ to }) => {
     const cvPath = path.join(db.paths.resumes, 'master-preview.pdf');
     await pdf.render(masterCv.master(), cvPath);

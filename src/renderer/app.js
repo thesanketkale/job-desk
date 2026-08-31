@@ -548,11 +548,14 @@ async function showJob(jobId) {
     $('#drawer-sub').textContent = `${job.company} · ${job.location_raw || '—'}`;
     $('#drawer-body').innerHTML = `<div class="jd">${
       job.description_html || '<p class="muted">The feed did not publish a description for this one.</p>'}</div>`;
+    const sent = job.application && job.application.status !== 'draft';
     $('#drawer-foot').innerHTML = `
       ${job.application
-        ? `<button class="btn btn--primary" data-open-app="${job.application.id}">Open the application</button>`
-        : `<button class="btn btn--primary" data-apply="${job.id}">Tailor &amp; apply</button>`}
+        ? `<button class="btn btn--primary" id="jd-open-app">${sent ? 'See what was sent' : 'Finish the draft'}</button>`
+        : `<button class="btn btn--primary" id="jd-apply">Tailor &amp; apply</button>`}
       ${job.apply_url ? `<button class="btn" data-external="${esc(job.apply_url)}">Open the posting in my browser</button>` : ''}`;
+    $('#jd-open-app')?.addEventListener('click', () => showApplication(job.application.id));
+    $('#jd-apply')?.addEventListener('click', () => startApply(job.id));
   } catch (err) {
     $('#drawer-body').innerHTML = `<p class="flash flash--bad">${esc(err.message)}</p>`;
   }
@@ -715,7 +718,13 @@ function renderApplication(a) {
     body_text: $('#a-body').value,
   });
 
-  $('#drawer-body').addEventListener('click', async (e) => {
+  // #drawer-body is a fixed container from index.html, reused every time an
+  // application is opened (and again on every #a-swap-cv click) — a listener
+  // bound here without removing the last one would stack, firing once per
+  // application viewed this session (see the same guard on #src-wrap).
+  const body = $('#drawer-body');
+  if (body._clickHandler) body.removeEventListener('click', body._clickHandler);
+  body._clickHandler = async (e) => {
     const file = e.target.closest('[data-file]');
     const copy = e.target.closest('[data-copy]');
     if (copy) { navigator.clipboard.writeText(a.cover_letter || ''); toast('Copied.'); return; }
@@ -729,7 +738,8 @@ function renderApplication(a) {
         await call(window.api.files[action], { applicationId: a.id, which });
       }
     } catch (err) { oops(err); }
-  }, { once: false });
+  };
+  body.addEventListener('click', body._clickHandler);
 
   $('#a-save')?.addEventListener('click', async (e) => {
     e.currentTarget.disabled = true;
@@ -1984,14 +1994,6 @@ VIEWS.settings = async function settingsView() {
     catch (err) { oops(err); }
   };
   const num = (id) => Number($(id).value);
-
-  $('#s-model')?.addEventListener('change', async (e) => {
-    try {
-      await call(window.api.ai.setModel, { model: e.target.value });
-      toast('Model changed.');
-      go('settings');
-    } catch (err) { oops(err); }
-  });
 
   /* The provider picker chooses which key is being managed. */
   (async () => {
