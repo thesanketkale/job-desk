@@ -109,9 +109,10 @@ function buildMenu() {
           click: async () => {
             try {
               const r = await network.runWithInternet(() => updater.checkNow(), { parent: mainWindow });
-              if (r.message) {
-                dialog.showMessageBox(mainWindow, { type: 'info', message: r.message,
-                  detail: `Installed version: ${app.getVersion()}`, buttons: ['OK'] });
+              // Corner panel, not a dialog: 'update-available' already pushed there if one exists —
+              // this just confirms the check happened, the same way the Settings button does.
+              if (r.message && mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('app:updateChecked', { message: r.message });
               }
             } catch (err) {
               if (!err?.popupShown) throw err;

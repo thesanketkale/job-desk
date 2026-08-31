@@ -181,6 +181,79 @@ function wireRefreshButtons() {
   });
 }
 
+/* -------------------------------------------------------------- updates */
+
+const UPDATE_ICON = {
+  download: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
+    + 'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 19h16"/></svg>',
+  install: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" '
+    + 'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">'
+    + '<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 3v6h-6"/></svg>',
+};
+
+/** The bottom-right corner panel: available → download → downloading →
+ *  downloaded → install. No centred dialogs anywhere in this flow. */
+function wireUpdatePanel() {
+  const panel = $('#update-panel');
+  const label = $('#update-panel-label');
+  const bar = $('#update-panel-bar');
+  const btn = $('#update-panel-btn');
+  let version = '';
+  let state = ''; // '' | 'available' | 'downloading' | 'downloaded' | 'installing'
+
+  const render = () => {
+    panel.classList.toggle('hidden', !state);
+    bar.classList.toggle('hidden', state !== 'downloading');
+    btn.classList.toggle('hidden', state === 'downloading' || state === 'installing');
+    if (state === 'available') {
+      label.textContent = `Version ${version} is available`;
+      btn.title = 'Download the update';
+      btn.innerHTML = UPDATE_ICON.download;
+    } else if (state === 'downloading') {
+      label.textContent = `Downloading ${version}….`;
+    } else if (state === 'downloaded') {
+      label.textContent = `Version ${version} is ready to install`;
+      btn.title = 'Install and restart';
+      btn.innerHTML = UPDATE_ICON.install;
+    } else if (state === 'installing') {
+      // The app quits a beat after this renders — electron-updater spawns the
+      // silent (/S) installer detached and unref'd, with nothing piped back,
+      // then quits on the very next tick. There is no process left after that
+      // to report real progress to, so this is an indeterminate spinner and a
+      // held moment, not a tracked percentage.
+      label.innerHTML = `<span class="spin"></span> Installing ${esc(version)}….`;
+    }
+  };
+
+  window.api.app.onUpdateAvailable(({ version: v }) => { version = v; state = 'available'; render(); });
+  window.api.app.onUpdateProgress(({ percent }) => {
+    state = 'downloading';
+    bar.firstElementChild.style.width = `${Math.max(0, Math.min(100, percent))}%`;
+    render();
+  });
+  window.api.app.onUpdateDownloaded(({ version: v }) => { version = v || version; state = 'downloaded'; render(); });
+  window.api.app.onUpdateError(() => { if (state === 'downloading') { state = ''; render(); } });
+  window.api.app.onUpdateChecked(({ message }) => { if (message) toast(message); });
+
+  btn.addEventListener('click', async () => {
+    if (state === 'available') {
+      state = 'downloading';
+      bar.firstElementChild.style.width = '0%';
+      render();
+      try { await call(window.api.app.downloadUpdate, {}); }
+      catch (err) { state = 'available'; render(); oops(err); }
+    } else if (state === 'downloaded') {
+      state = 'installing';
+      render();
+      // Held just long enough to be seen before the window closes to install.
+      setTimeout(() => call(window.api.app.installUpdate, {}).catch(oops), 900);
+    }
+  });
+
+  $('#update-panel-close').addEventListener('click', () => { state = ''; render(); });
+}
+
 /* ------------------------------------------------------- shared chrome */
 
 let cvName = null;
@@ -2102,6 +2175,7 @@ window.addEventListener('unhandledrejection', (e) => {
 });
 
 wireRefreshButtons();
+wireUpdatePanel();
 wireBoard();
 wireApplications();
 wireFollowups();

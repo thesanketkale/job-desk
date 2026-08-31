@@ -100,6 +100,13 @@ contextBridge.exposeInMainWorld('api', {
     backup: call('app:backup'),
     checkUpdates: call('app:checkUpdates'),
     updateStatus: call('app:updateStatus'),
+    downloadUpdate: call('app:downloadUpdate'),
+    installUpdate: call('app:installUpdate'),
+    onUpdateAvailable: (fn) => on('app:updateAvailable', fn),
+    onUpdateProgress: (fn) => on('app:updateProgress', fn),
+    onUpdateDownloaded: (fn) => on('app:updateDownloaded', fn),
+    onUpdateError: (fn) => on('app:updateError', fn),
+    onUpdateChecked: (fn) => on('app:updateChecked', fn),
   },
   onApplicationsChanged: (fn) => on('applications:changed', fn),
 });

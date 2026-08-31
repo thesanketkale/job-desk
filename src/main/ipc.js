@@ -626,6 +626,8 @@ function register(ctx) {
     enabled: updater.enabled(), ...updater.config(), version: app.getVersion(),
     hasToken: updater.hasToken(), lastCheck: updater.lastCheck,
   }));
+  handle('app:downloadUpdate', () => updater.downloadUpdate(), { internet: true });
+  handle('app:installUpdate', () => { updater.installUpdate(); return true; });
 }
 
 module.exports = { register };

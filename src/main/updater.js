@@ -24,13 +24,11 @@
  * auth needed) or a `generic` static-host channel. `channel: 'off'` in
  * `package.json`'s `updates` block is the only way to switch it off outright.
  */
-const { app, dialog, shell } = require('electron');
+const { app, shell } = require('electron');
 const settings = require('./settings');
 const network = require('./network');
 
 let autoUpdater = null;
-let notified = false;
-let notifiedAvailable = false;
 let lastCheck = null;   // { at, ok, message } — so a silent background failure is not invisible
 // Whether the feed was actually built WITH a token, as opposed to a token row
 // merely existing. Those two can disagree — a saved secret that no longer
@@ -107,50 +105,27 @@ function init(getWindow) {
   try { ({ autoUpdater } = require('electron-updater')); }
   catch { return { enabled: false, reason: 'electron-updater is not installed.' }; }
 
-  autoUpdater.autoDownload = true;
+  // Manual download, not automatic: the corner panel offers the download, the
+  // person decides when. autoInstallOnAppQuit stays on as a quiet safety net —
+  // if a download finishes and she closes the app without pressing Install,
+  // electron-updater's own BaseUpdater#addQuitHandler installs it silently on
+  // that quit (install(true, false)), same as it always has.
+  autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = true;
   autoUpdater.allowPrerelease = false;
   applyFeed();
 
-  // Fires the moment a check finds a newer version, well before it finishes
-  // downloading — autoDownload is already true, so the download has already
-  // started by the time this shows; this is the "yes, one exists" popup, not
-  // the "yes/no, download it?" one. update-downloaded below is the separate,
-  // later "it's ready, install now?" popup once the file is actually here.
-  autoUpdater.on('update-available', async (info) => {
-    if (notifiedAvailable) return;
-    notifiedAvailable = true;
+  const send = (channel, payload) => {
     const win = getWindow?.();
-    await dialog.showMessageBox(win, {
-      type: 'info',
-      buttons: ['OK'],
-      message: `Version ${info.version} is available`,
-      detail: 'Downloading it now in the background. You will be asked to install it once it is ready.',
-    });
-  });
+    if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+  };
 
-  autoUpdater.on('update-downloaded', async (info) => {
-    if (notified) return;
-    notified = true;
-    const win = getWindow?.();
-    const { response } = await dialog.showMessageBox(win, {
-      type: 'info',
-      buttons: ['Update now', 'Do it later'],
-      defaultId: 0,
-      cancelId: 1,
-      message: `Version ${info.version} is ready`,
-      detail: '"Update now" closes the app and installs straight away, reopening once it is '
-        + 'done. "Do it later" installs the same way, quietly, the next time the app is closed — '
-        + 'nothing you have saved is affected either way.',
-    });
-    // isSilent, isForceRunAfter: bare quitAndInstall() defaults to isSilent:false, which shows
-    // the NSIS installer's own wizard instead of just closing and updating — the opposite of what
-    // this button promises. The "Do it later" path never touches this: electron-updater's own
-    // BaseUpdater#addQuitHandler installs on any normal app quit once a download finishes,
-    // silently and without reopening (install(true, false)) — that quiet close-to-update
-    // behaviour has worked since autoInstallOnAppQuit was first set, not something added here.
-    if (response === 0) autoUpdater.quitAndInstall(true, true);
-  });
+  // No dialogs anywhere in here — every one of these just tells the corner
+  // panel (renderer's #update-panel) what to show. Fires the moment a check
+  // finds a newer version, well before anything downloads.
+  autoUpdater.on('update-available', (info) => send('app:updateAvailable', { version: info.version }));
+  autoUpdater.on('download-progress', (p) => send('app:updateProgress', { percent: Math.round(p.percent) }));
+  autoUpdater.on('update-downloaded', (info) => send('app:updateDownloaded', { version: info.version }));
 
   autoUpdater.on('error', (err) => {
     // Never interrupt her with a dialog over a failed background check — but
@@ -159,6 +134,7 @@ function init(getWindow) {
     // no token yet reads as "needs a token" instead of quietly never updating.
     const message = friendlyUpdateError(err);
     lastCheck = { at: new Date().toISOString(), ok: false, message };
+    send('app:updateError', { message });
     require('./db').logActivity('update_error', String(err?.message || err).slice(0, 200));
   });
 
@@ -166,6 +142,21 @@ function init(getWindow) {
     network.runWithInternet(() => autoUpdater.checkForUpdates(), { popup: false }).catch(() => {});
   }, 8000);
   return { enabled: true, channel: cfg.channel };
+}
+
+/** The corner panel's download button. */
+async function downloadUpdate() {
+  if (!autoUpdater) throw new Error('Updates are not available in this build.');
+  await autoUpdater.downloadUpdate();
+  return true;
+}
+
+/** The corner panel's install button — installs and reopens right away, no
+ *  wizard. Bare quitAndInstall() defaults isSilent to false, which runs the
+ *  NSIS installer's own multi-click wizard instead; both booleans must be
+ *  spelled out (isSilent, isForceRunAfter). */
+function installUpdate() {
+  if (autoUpdater) autoUpdater.quitAndInstall(true, true);
 }
 
 /**
@@ -232,7 +223,7 @@ async function checkNow() {
   if (!autoUpdater) {
     try { ({ autoUpdater } = require('electron-updater')); }
     catch { return { checked: false, current: app.getVersion(), message: 'electron-updater is not installed.' }; }
-    autoUpdater.autoDownload = true;
+    autoUpdater.autoDownload = false;
     autoUpdater.autoInstallOnAppQuit = true;
   }
   applyFeed();   // picks up a token saved after launch, without needing a restart
@@ -240,7 +231,7 @@ async function checkNow() {
     const result = await autoUpdater.checkForUpdates();
     const latest = result?.updateInfo?.version;
     const message = latest && latest !== app.getVersion()
-      ? `Version ${latest} is downloading. It will install when the app is next closed.`
+      ? `Version ${latest} is available — download it from the panel in the corner.`
       : 'This is the newest version.';
     lastCheck = { at: new Date().toISOString(), ok: true, message };
     return { checked: true, current: app.getVersion(), latest, message };
@@ -256,5 +247,5 @@ async function checkNow() {
   }
 }
 
-module.exports = { init, checkNow, enabled, config, hasToken, applyFeed, friendlyUpdateError, githubTarget,
-  get lastCheck() { return lastCheck; } };
+module.exports = { init, checkNow, downloadUpdate, installUpdate, enabled, config, hasToken, applyFeed,
+  friendlyUpdateError, githubTarget, get lastCheck() { return lastCheck; } };
