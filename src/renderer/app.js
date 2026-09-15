@@ -961,8 +961,9 @@ function renderResumeReplacement(read) {
 
   $('#s-resume-cancel').onclick = () => { box.classList.add('hidden'); box.innerHTML = ''; };
   $('#s-resume-apply').onclick = async (e) => {
-    e.currentTarget.disabled = true;
-    e.currentTarget.innerHTML = '<span class="spin"></span> Saving…';
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Saving…';
     try {
       const out = await call(window.api.resume.apply, {
         cv, rebuildKeywords: $('#s-resume-rebuild').checked,
@@ -973,7 +974,7 @@ function renderResumeReplacement(read) {
         ? `Resume replaced. ${out.keywords.added} search words rebuilt, ${out.keywords.keptYours} of yours kept.`
         : 'Resume replaced. Your search words were left as they are.');
       go('settings');                      // redraw with the new details in place
-    } catch (err) { oops(err); e.currentTarget.disabled = false; }
+    } catch (err) { oops(err); btn.disabled = false; }
   };
 }
 
@@ -2280,12 +2281,13 @@ VIEWS.settings = async function settingsView() {
     } catch (err) { oops(err); btn.disabled = false; btn.textContent = 'Save'; }
   });
   $('#s-gh-pat-clear')?.addEventListener('click', async (e) => {
-    e.currentTarget.disabled = true;
+    const btn = e.currentTarget;
+    btn.disabled = true;
     try {
       await call(window.api.settings.setSecret, { key: 'github_pat', value: '' });
       toast('Token removed.');
       go('settings');
-    } catch (err) { oops(err); e.currentTarget.disabled = false; }
+    } catch (err) { oops(err); btn.disabled = false; }
   });
 
   $('#s-backup').addEventListener('click', async () => {
