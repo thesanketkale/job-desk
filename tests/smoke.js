@@ -1434,6 +1434,43 @@ group('Making the CV files');
       && sentPayload.attachments[0].filename.endsWith('.pdf'),
     JSON.stringify(sentPayload?.attachments || []));
 
+  group('Checking the mailbox before saving it');
+  // Settings' Save button checks a draft config — not what's already on disk —
+  // so an incomplete one must come back as {ok:false}, never an uncaught throw.
+  const missingHost = await mailerForAttachment.verify({ host: '', port: 465, user: 'hi@x.test', pass: 'x' });
+  ok('a blank server address is reported, not thrown',
+    missingHost.ok === false && /mail server/i.test(missingHost.message));
+  const missingPass = await mailerForAttachment.verify({ host: 'smtp.x.test', port: 465, user: 'hi@x.test', pass: '' });
+  ok('a blank password is reported, not thrown',
+    missingPass.ok === false && /password/i.test(missingPass.message));
+
+  // A genuine "no internet right now" must stay a thrown, coded error — for
+  // verify() so a Save click's runWithInternet wrapper can retry/pop up
+  // instead of the check silently failing, and for send() so a real
+  // application send gets the same treatment instead of losing it to a
+  // rewrapped plain Error. Fakes requireInternet() directly: real DNS
+  // failures are not reliable to assert on (some networks resolve anything).
+  const realRequireInternet = network.requireInternet;
+  network.requireInternet = () => {
+    const e = new Error('offline (test)');
+    e.code = network.INTERNET_ERROR_CODE;
+    throw e;
+  };
+  settings.set('smtp_host', 'smtp.x.test');
+  settings.set('smtp_port', 465);
+  settings.set('smtp_user', 'hi@x.test');
+  settings.setSecret('smtp_password', 'x');
+  let verifyOfflineError = null;
+  try { await mailerForAttachment.verify(); } catch (err) { verifyOfflineError = err; }
+  let sendOfflineError = null;
+  try { await mailerForAttachment.send({ to: 'a@b.test', subject: 's', text: 't' }); }
+  catch (err) { sendOfflineError = err; }
+  network.requireInternet = realRequireInternet;
+  ok('checking the mailbox surfaces a real offline state, not an ok:false toast',
+    verifyOfflineError?.code === network.INTERNET_ERROR_CODE);
+  ok('sending surfaces a real offline state, not a re-wrapped plain error',
+    sendOfflineError?.code === network.INTERNET_ERROR_CODE);
+
   /* ------------------------------------------------ checking an API key ---- */
   group('Checking an API key before saving it');
   // Each service has its own key shape, and the wrong one is caught locally —

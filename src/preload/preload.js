@@ -76,6 +76,7 @@ contextBridge.exposeInMainWorld('api', {
     set: call('settings:set'),
     setSecret: call('settings:setSecret'),
     testMail: call('settings:testMail'),
+    saveMailbox: call('settings:saveMailbox'),
     testClaude: call('settings:testClaude'),
     validateClaudeKey: call('settings:validateClaudeKey'),
     sendTestEmail: call('settings:sendTestEmail'),

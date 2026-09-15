@@ -335,6 +335,30 @@ function register(ctx) {
     return settings.redacted();
   });
   handle('settings:testMail', () => mailer.verify(), { internet: true });
+  /**
+   * Signs in with the typed fields before saving anything, so a wrong
+   * password never ends up stored and silently failing on the first
+   * application — the same guarantee validateClaudeKey gives the AI key.
+   * A blank password field means "keep the one already saved", so editing
+   * the server address alone still re-checks against the real password.
+   */
+  handle('settings:saveMailbox', async ({ patch, password }) => {
+    const draft = {
+      host: String(patch?.smtp_host || '').trim(),
+      port: Number(patch?.smtp_port) || 0,
+      secure: !!patch?.smtp_secure,
+      user: String(patch?.smtp_user || '').trim(),
+      pass: password || settings.getSecret('smtp_password', ''),
+    };
+    const result = await mailer.verify(draft);
+    if (!result.ok) return result;
+
+    for (const [k, v] of Object.entries(patch || {})) {
+      if (!k.startsWith('secret:')) settings.set(k, v);
+    }
+    if (password) settings.setSecret('smtp_password', password);
+    return result;
+  }, { internet: true });
   handle('settings:testClaude', ({ provider } = {}) => ai.ping({ provider: provider || budget.providerId() }),
     { internet: true });
 

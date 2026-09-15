@@ -742,10 +742,11 @@ function renderApplication(a) {
   body.addEventListener('click', body._clickHandler);
 
   $('#a-save')?.addEventListener('click', async (e) => {
-    e.currentTarget.disabled = true;
+    const btn = e.currentTarget;
+    btn.disabled = true;
     try { await call(window.api.apply.save, collect()); toast('Saved as a draft.'); }
     catch (err) { oops(err); }
-    e.currentTarget.disabled = false;
+    btn.disabled = false;
   });
 
   $('#a-swap-cv')?.addEventListener('click', async (e) => {
@@ -1744,8 +1745,7 @@ VIEWS.settings = async function settingsView() {
       </div>
       <div class="row" style="margin-top:var(--s4);flex-wrap:wrap">
         <button class="btn btn--primary btn--sm" id="s-mail-save">Save</button>
-        <button class="btn btn--sm" id="s-mail-test">Check it works</button>
-        <button class="btn btn--sm" id="s-mail-send">Send myself a test</button>
+        <button class="btn btn--sm" id="s-mail-send">Send a test email to myself</button>
       </div>
       <label class="row small" style="margin-top:var(--s4);gap:var(--s2)">
         <input type="checkbox" id="s-bcc" ${s.bcc_self ? 'checked' : ''}>
@@ -2057,50 +2057,59 @@ VIEWS.settings = async function settingsView() {
     }
   });
   $('#s-claude-test').addEventListener('click', async (e) => {
-    e.currentTarget.disabled = true;
-    e.currentTarget.innerHTML = '<span class="spin"></span> Checking…';
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Checking…';
     try {
       await call(window.api.settings.testClaude, { provider: $('#s-provider')?.value || undefined });
       toast('The key works.');
     }
     catch (err) { oops(err); }
-    e.currentTarget.disabled = false;
-    e.currentTarget.textContent = 'Check it works';
+    btn.disabled = false;
+    btn.textContent = 'Check it works';
   });
 
-  $('#s-mail-save').addEventListener('click', async () => {
-    await patch({
-      smtp_host: $('#s-host').value.trim(),
-      smtp_port: num('#s-port'),
-      smtp_secure: num('#s-port') === 465,
-      smtp_user: $('#s-user').value.trim(),
-      smtp_from_name: $('#s-fromname').value.trim(),
-      smtp_from_email: $('#s-fromemail').value.trim(),
-      bcc_self: $('#s-bcc').checked,
-    }, 'Mailbox saved.');
-    const pass = $('#s-pass').value;
-    if (pass) {
-      try { await call(window.api.settings.setSecret, { key: 'smtp_password', value: pass }); go('settings'); }
-      catch (err) { oops(err); }
-    }
-  });
-  $('#s-mail-test').addEventListener('click', async (e) => {
-    e.currentTarget.disabled = true;
-    e.currentTarget.innerHTML = '<span class="spin"></span> Checking…';
+  // Signs in with the typed fields before saving anything — a wrong password
+  // never ends up stored and silently failing on the first application.
+  $('#s-mail-save').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Checking…';
     try {
-      const r = await call(window.api.settings.testMail, {});
-      toast(r.message, r.ok ? 'ok' : 'bad', r.ok ? 5000 : 12000);
+      const r = await call(window.api.settings.saveMailbox, {
+        patch: {
+          smtp_host: $('#s-host').value.trim(),
+          smtp_port: num('#s-port'),
+          smtp_secure: num('#s-port') === 465,
+          smtp_user: $('#s-user').value.trim(),
+          smtp_from_name: $('#s-fromname').value.trim(),
+          smtp_from_email: $('#s-fromemail').value.trim(),
+          bcc_self: $('#s-bcc').checked,
+        },
+        password: $('#s-pass').value.trim(),
+      });
+      if (r.ok) { toast(r.message ? `Mailbox saved. ${r.message}` : 'Mailbox saved.'); go('settings'); return; }
+      toast(r.message, 'bad', 12000);
     } catch (err) { oops(err); }
-    e.currentTarget.disabled = false;
-    e.currentTarget.textContent = 'Check it works';
+    btn.disabled = false;
+    btn.textContent = 'Save';
   });
   $('#s-mail-send').addEventListener('click', async (e) => {
     const to = $('#s-fromemail').value.trim();
     if (!to) { toast('Fill in the send-as address first.', 'warn'); return; }
-    e.currentTarget.disabled = true;
-    try { await call(window.api.settings.sendTestEmail, { to }); toast(`Test sent to ${to}. Check the inbox.`); }
-    catch (err) { oops(err); }
-    e.currentTarget.disabled = false;
+    const btn = e.currentTarget;
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spin"></span> Checking…';
+    try {
+      // Confirm the mailbox actually signs in before spending a send attempt on it.
+      const check = await call(window.api.settings.testMail, {});
+      if (!check.ok) { toast(check.message, 'bad', 12000); return; }
+      btn.innerHTML = '<span class="spin"></span> Sending…';
+      await call(window.api.settings.sendTestEmail, { to });
+      toast(`Test sent to ${to}. Check the inbox.`);
+    } catch (err) { oops(err); }
+    btn.disabled = false;
+    btn.textContent = 'Send a test email to myself';
   });
 
   const boardInputs = ['#s-minscore', '#s-w-remote', '#s-w-hybrid', '#s-w-onsite', '#s-countries',
