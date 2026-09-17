@@ -111,7 +111,7 @@ portable build keeps the same folder beside the `.exe` instead.
 ```bash
 npm install
 npm start          # npm run dev opens devtools
-npm test           # 361 checks
+npm test           # fast, no Electron and no network needed
 ```
 
 `npm test` runs on your system's own Node and needs **22.5 or newer** — that is

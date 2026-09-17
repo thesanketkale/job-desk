@@ -8,13 +8,24 @@ Srishti Sharma, a counselling psychologist. Electron on Windows, no server.
 ```bash
 npm install
 npm start            # npm run dev opens devtools
-npm test             # 361 checks, no Electron and no network needed
+npm test             # fast, no Electron and no network needed
 ```
 
 `npm test` needs Node 22.5+ on the system PATH (`node:sqlite` isn't available
 before that) — `npm start`/`npm run dev` don't care, since Electron brings its
 own Node 24. `npm test` is fast and covers the logic that matters. Run it
 before and after any change to `src/main/`.
+
+`tests/smoke.js` is one linear script grouped by comment headers, not a
+per-file test runner — there is no name filter, so "run one test" means
+running the whole thing, which finishes in well under a second. `npm run
+lint` is only `node --check` on `main.js`; the real syntax gate is CI's own
+`node --check` loop over every file in `src/`, `scripts/` and `tests/`
+(`.github/workflows/test.yml`).
+
+Local packaging (`npm run build:win` / `build:portable` / `build:mac` /
+`build:linux`) writes to `dist/`, for checking that packaging itself still
+works. `npm run release` (see *Releasing* below) is the actual release path.
 
 ## Architecture in one paragraph
 
@@ -297,6 +308,7 @@ what arms it; nothing in this codebase calls it directly.
 | `src/main/settings.js` | Prefs, `safeStorage`-encrypted secrets, the baked-key fallback, source activation. |
 | `src/main/updater.js` | Auto-update against this repository's own (private) Releases. |
 | `scripts/write-baked-keys.mjs` | Writes gitignored `baked-keys.js` from CI secrets before packaging. |
+| `tests/screenshot.js` | Dev-only: boots the real app on seeded fixture data and captures a PNG of each view. Not part of `npm test` — run directly, e.g. `npx electron tests/screenshot.js` (`SHOT_DIR` sets the output folder). |
 | `src/renderer/app.js` | Every view. One function per route in `VIEWS`. |
 | `src/renderer/app.css` | Design tokens at the top. Nothing below them uses a raw pixel value. |
 
