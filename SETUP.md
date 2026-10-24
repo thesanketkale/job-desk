@@ -85,9 +85,9 @@ cd jobdesk
 git init
 git add .
 git commit -m "Job Desk: a local-first job board and application desk"
-git branch -M main
+git branch -M master
 git remote add origin https://github.com/thesanketkale/job-desk.git
-git push -u origin main
+git push -u origin master
 ```
 
 Before that first push, replace the `OWNER` placeholders in `package.json`
@@ -237,7 +237,7 @@ builds unsigned if they do not.
 
 | | Trigger | Runner | Roughly |
 |---|---|---|---|
-| `test.yml` | every push and PR to `main` | Linux | 1–2 min |
+| `test.yml` | every push and PR to `master` | Linux | 1–2 min |
 | `release.yml` | pushing a `v*` tag | Windows | 5–8 min |
 
 Both are free and unmetered on a public repository. The tests still run on the
@@ -254,7 +254,7 @@ git commit -am "What changed"
 git push -u origin some-change
 # open a PR, tests run automatically, merge
 
-git checkout main && git pull
+git checkout master && git pull
 npm run release
 ```
 

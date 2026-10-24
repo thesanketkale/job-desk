@@ -23,8 +23,8 @@ if (git('status', '--porcelain')) {
 }
 
 const branch = git('rev-parse', '--abbrev-ref', 'HEAD');
-if (branch !== 'main') {
-  console.warn(`  Note: releasing from "${branch}", not main.`);
+if (branch !== 'master') {
+  console.warn(`  Note: releasing from "${branch}", not master.`);
 }
 
 const pkgPath = new URL('../package.json', import.meta.url);

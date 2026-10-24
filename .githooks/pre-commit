@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# agent-team: fast verification before every commit, for humans and agents alike.
+# Agents must never bypass this. Humans can, knowingly, with: git commit --no-verify
+exec bash "$(git rev-parse --show-toplevel)/scripts/verify.sh" fast

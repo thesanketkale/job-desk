@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # Job Desk — notes for Claude Code
 
 A private, local-first job board and application desk built for one person:

@@ -4,10 +4,10 @@ name: Tests
 # Electron or Windows. The Windows build only runs when you actually cut a release.
 on:
   push:
-    branches: [main]
+    branches: [master]
     paths-ignore: ['**.md', 'docs/**', '.gitignore', 'LICENSE']
   pull_request:
-    branches: [main]
+    branches: [master]
     paths-ignore: ['**.md', 'docs/**', '.gitignore', 'LICENSE']
   workflow_dispatch:
 
@@ -43,9 +43,7 @@ jobs:
 
       - name: Check every file parses
         run: |
-          for f in $(find src scripts tests -name '*.js' -o -name '*.mjs'); do
-            node --check "$f" || exit 1
-          done
+          find src scripts tests \( -name '*.js' -o -name '*.mjs' \) -exec node --check {} +
 
       # Electron's binary is ~100 MB and the tests never launch it.
       - name: Install dependencies

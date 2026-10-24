@@ -12,7 +12,8 @@ scripts/signing/
 # finds into the user's data folder on first run, and the blank
 # resources/master-resume.example.json is what ships in the build.
 resources/master-resume.json
-/.claude
+/.claude/*
+!/.claude/settings.json
 
 # Service API keys baked into a release build (scripts/write-baked-keys.mjs,
 # from GitHub Actions secrets). Real values only ever exist on the CI runner
